@@ -7,6 +7,8 @@
 //   ส่วน R: (ถ้าตั้ง BE_SERVER_DIR) เสิร์ฟหน้าเว็บผ่าน backend จริง แล้วเทียบ mock กับ API จริง
 // รัน: cd qa && npm install && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node --test fe-1.test.js
 // Google Fonts ถูกบล็อกใน environment นี้ — test ตอบ CSS ว่างแทน (ไม่ใช่ defect)
+// อัปเดต tick 2: ตาม API contract v2 + Decision log D8–D12 (field ใน VALIDATION, เพดานค่า, ลำดับการตรวจ,
+//   cutoffAt วันเดียวกับรอบ, GET order ของตัวเอง) · ส่วน M ตรึงนาฬิกา server จำลองไว้ที่ 2026-10-05 จึงไม่ขึ้นกับเวลาที่รัน
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -47,12 +49,25 @@ function mock(page, method, p, body, raw) {
     [method, p, body, raw]);
 }
 
-function assertError(res, status, code, label = '') {
+/**
+ * รูปแบบ error ตาม API contract v2 (D11)
+ * VALIDATION → { error: { code, field, message } } (field = path หรือ null) · error อื่นไม่มี field
+ * field: ไม่ส่ง = ไม่ตรวจค่า · string / null = ต้องตรง · RegExp = ต้อง match
+ */
+function assertError(res, status, code, label = '', field) {
   assert.equal(res.status, status, `${label} status ควร ${status} ได้ ${res.status} ${JSON.stringify(res.body)}`);
   assert.deepEqual(Object.keys(res.body), ['error'], label);
-  assert.deepEqual(Object.keys(res.body.error).sort(), ['code', 'message'], label);
   assert.equal(res.body.error.code, code, label);
-  assert.match(res.body.error.message, /[฀-๿]/, `${label} message ต้องเป็นภาษาไทย`);
+  if (code === 'VALIDATION') {
+    assert.deepEqual(Object.keys(res.body.error).sort(), ['code', 'field', 'message'], `${label} VALIDATION ต้องมี field (D11)`);
+    const f = res.body.error.field;
+    assert.ok(f === null || typeof f === 'string', `${label} field ต้องเป็น string หรือ null`);
+    if (field instanceof RegExp) assert.match(String(f), field, `${label} field`);
+    else if (field !== undefined) assert.equal(f, field, `${label} field ควร ${field} ได้ ${f}`);
+  } else {
+    assert.deepEqual(Object.keys(res.body.error).sort(), ['code', 'message'], `${label} error ${code} ต้องไม่มี field (D11)`);
+  }
+  assert.match(res.body.error.message, /[\u0E00-\u0E7F]/, `${label} message ต้องเป็นภาษาไทย`);
 }
 
 const ROUND_KEYS = ['cutoffAt', 'date', 'id', 'items', 'restaurant', 'serverNow', 'status'];
@@ -71,59 +86,139 @@ function assertRound(r) {
   });
 }
 
-const futureIso = (sec) => new Date(Date.now() + sec * 1000 + 7 * 3600e3).toISOString().slice(0, 19) + '+07:00';
+const toBkk = (ms) => new Date(ms + 7 * 3600e3).toISOString().slice(0, 19) + '+07:00';
+const endOfBkkDay = (ms = Date.now()) => Date.parse(toBkk(ms).slice(0, 10) + 'T23:59:59+07:00');
+// D10: cutoffAt ไม่ให้เลย 23:59:59 ไทยของวันนี้
+const futureIso = (sec) => toBkk(sec > 0 ? Math.min(Date.now() + sec * 1000, endOfBkkDay()) : Date.now() + sec * 1000);
+// ตั้งนาฬิกา server จำลองให้เป็นเวลาไทยที่กำหนด (ไม่ขึ้นกับเวลาจริงตอนรัน test)
+const pinMock = (page, iso) => page.evaluate((t) => window.TL.mock.setClockOffset(t - Date.now()), Date.parse(iso));
+const DAY = '2026-10-05';
+const at = (hms) => `${DAY}T${hms}+07:00`;
 const MENU = [{ name: 'ข้าวมันไก่ต้ม', price: 50 }, { name: 'ข้าวมันไก่ทอด', price: 55 }, { name: 'เกาเหลา', price: 40 }];
 
 // ───────────────────────── ส่วน M: server จำลอง ─────────────────────────
 
-test('M1 POST /api/rounds + GET /api/rounds/today: 201/200 Round, 404 NO_ROUND, 409 ROUND_EXISTS, 400 VALIDATION', async () => {
+test('M1 POST /api/rounds + GET /api/rounds/today: 201/200 Round, 404 NO_ROUND, 409 ROUND_EXISTS, 400 VALIDATION + field (D8, D11)', async () => {
   const { ctx, page } = await openPage({ query: '?mock=empty' });
   try {
     await page.evaluate(() => window.TL.mock.setLatency(0));
+    await pinMock(page, at('09:00:00'));
     assertError(await mock(page, 'GET', '/api/rounds/today'), 404, 'NO_ROUND');
 
-    const ok = { restaurant: 'ร้านป้า', cutoffAt: futureIso(3600), items: MENU };
+    const ok = { restaurant: 'ร้านป้า', cutoffAt: at('11:00:00'), items: MENU };
     const bad = [
-      ['ไม่มี restaurant', { ...ok, restaurant: undefined }],
-      ['restaurant ช่องว่าง', { ...ok, restaurant: '  ' }],
-      ['ไม่มี cutoffAt', { ...ok, cutoffAt: undefined }],
-      ['cutoffAt ผิดรูปแบบ', { ...ok, cutoffAt: 'พรุ่งนี้ 11 โมง' }],
-      ['cutoffAt ในอดีต', { ...ok, cutoffAt: futureIso(-60) }],
-      ['items ว่าง', { ...ok, items: [] }],
-      ['items 31', { ...ok, items: Array.from({ length: 31 }, (_, i) => ({ name: 'm' + i, price: 10 })) }],
-      ['price 0', { ...ok, items: [{ name: 'a', price: 0 }] }],
-      ['price ติดลบ', { ...ok, items: [{ name: 'a', price: -1 }] }],
-      ['price ทศนิยม', { ...ok, items: [{ name: 'a', price: 1.5 }] }],
-      ['price string', { ...ok, items: [{ name: 'a', price: '50' }] }],
-      ['ชื่อเมนูว่าง', { ...ok, items: [{ name: '', price: 10 }] }],
-      ['body เป็น array', [ok]],
+      ['ไม่มี restaurant', { ...ok, restaurant: undefined }, 'restaurant'],
+      ['restaurant ช่องว่าง', { ...ok, restaurant: '  ' }, 'restaurant'],
+      ['restaurant ไม่ใช่ string', { ...ok, restaurant: 5 }, 'restaurant'],
+      ['D8 restaurant 61 code point', { ...ok, restaurant: 'ข้าว'.repeat(15) + 'ก' }, 'restaurant'],
+      ['ไม่มี cutoffAt', { ...ok, cutoffAt: undefined }, 'cutoffAt'],
+      ['cutoffAt ผิดรูปแบบ', { ...ok, cutoffAt: 'พรุ่งนี้ 11 โมง' }, 'cutoffAt'],
+      ['cutoffAt ไม่มี offset', { ...ok, cutoffAt: `${DAY}T11:00:00` }, 'cutoffAt'],
+      ['cutoffAt เป็นตัวเลข', { ...ok, cutoffAt: Date.parse(at('11:00:00')) }, 'cutoffAt'],
+      ['cutoffAt ในอดีต', { ...ok, cutoffAt: at('08:59:00') }, 'cutoffAt'],
+      ['D10 cutoffAt พรุ่งนี้', { ...ok, cutoffAt: '2026-10-06T11:00:00+07:00' }, 'cutoffAt'],
+      ['D10 cutoffAt 00:00 คืนนี้ (Z)', { ...ok, cutoffAt: '2026-10-05T17:00:00Z' }, 'cutoffAt'],
+      ['ไม่มี items', { ...ok, items: undefined }, 'items'],
+      ['items ว่าง', { ...ok, items: [] }, 'items'],
+      ['items 31', { ...ok, items: Array.from({ length: 31 }, (_, i) => ({ name: 'm' + i, price: 10 })) }, 'items'],
+      ['item ไม่ใช่ object', { ...ok, items: [MENU[0], 'x'] }, 'items[1]'],
+      ['ชื่อเมนูว่าง', { ...ok, items: [{ name: '', price: 10 }] }, 'items[0].name'],
+      ['D8 ชื่อเมนู 61 emoji', { ...ok, items: [MENU[0], MENU[1], { name: '🍚'.repeat(61), price: 10 }] }, 'items[2].name'],
+      ['price 0', { ...ok, items: [{ name: 'a', price: 0 }] }, 'items[0].price'],
+      ['price ติดลบ', { ...ok, items: [{ name: 'a', price: -1 }] }, 'items[0].price'],
+      ['price ทศนิยม', { ...ok, items: [{ name: 'a', price: 1.5 }] }, 'items[0].price'],
+      ['price string', { ...ok, items: [{ name: 'a', price: '50' }] }, 'items[0].price'],
+      ['price null', { ...ok, items: [{ name: 'a', price: null }] }, 'items[0].price'],
+      ['D8 price 10,001', { ...ok, items: [{ name: 'a', price: 10001 }] }, 'items[0].price'],
+      ['D8 price 2^53', { ...ok, items: [{ name: 'a', price: 2 ** 53 }] }, 'items[0].price'],
+      ['price ผิดรายการที่ 3', { ...ok, items: [MENU[0], MENU[1], { name: 'c', price: 0 }] }, 'items[2].price'],
+      ['D9 ผิดทุกจุด → restaurant', { restaurant: '', cutoffAt: 'x', items: [] }, 'restaurant'],
+      ['D9 ผิด cutoffAt + items → cutoffAt', { restaurant: 'ร้าน', cutoffAt: 'x', items: [] }, 'cutoffAt'],
+      ['D9 รายการเดียวกัน name ก่อน price', { ...ok, items: [{ name: '', price: 0 }] }, 'items[0].name'],
+      ['body เป็น array', [ok], null],
+      ['body เป็น string', 'ร้าน', null],
     ];
-    for (const [label, body] of bad) assertError(await mock(page, 'POST', '/api/rounds', body), 400, 'VALIDATION', label);
-    assertError(await mock(page, 'POST', '/api/rounds', '{not json', true), 400, 'VALIDATION', 'ไม่ใช่ JSON');
+    for (const [label, body, field] of bad) assertError(await mock(page, 'POST', '/api/rounds', body), 400, 'VALIDATION', label, field);
+    assertError(await mock(page, 'POST', '/api/rounds', '{not json', true), 400, 'VALIDATION', 'ไม่ใช่ JSON', null);
+    assertError(await mock(page, 'POST', '/api/rounds', 'null', true), 400, 'VALIDATION', 'JSON null', null);
     assertError(await mock(page, 'GET', '/api/rounds/today'), 404, 'NO_ROUND', 'validation ไม่ควรสร้างรอบ');
 
-    const created = await mock(page, 'POST', '/api/rounds', { ...ok, restaurant: '  ร้านป้า  ' });
-    assert.equal(created.status, 201);
+    // D8 ขอบบนต้องผ่าน: ชื่อร้าน 60 code point (ไทยมีสระ/วรรณยุกต์), เมนู 60 emoji (UTF-16 = 120), price 1 / 10,000
+    const r60 = 'ข้าว'.repeat(15);
+    const edge = [{ name: '🍚'.repeat(60), price: 1 }, { name: 'น้ำ'.repeat(20), price: 10000 }, ...MENU];
+    const created = await mock(page, 'POST', '/api/rounds', { restaurant: `  ${r60}  `, cutoffAt: at('11:00:00'), items: edge });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
     assertRound(created.body);
-    assert.equal(created.body.restaurant, 'ร้านป้า');
+    assert.equal(created.body.id, 'r_20261005');
+    assert.equal(created.body.restaurant, r60);
+    assert.equal(created.body.cutoffAt, at('11:00:00'));
     assert.equal(created.body.status, 'open');
-    assert.deepEqual(created.body.items.map((i) => [i.name, i.price]), MENU.map((m) => [m.name, m.price]));
-    assert.equal(new Set(created.body.items.map((i) => i.id)).size, 3);
+    assert.deepEqual(created.body.items.map((i) => [i.name, i.price]), edge.map((m) => [m.name, m.price]));
+    assert.equal(new Set(created.body.items.map((i) => i.id)).size, edge.length);
 
     const today = await mock(page, 'GET', '/api/rounds/today');
     assert.equal(today.status, 200);
     assertRound(today.body);
     assert.equal(today.body.id, created.body.id);
 
+    // D9: มีรอบแล้ว + body ผิด → VALIDATION ก่อน ROUND_EXISTS
+    assertError(await mock(page, 'POST', '/api/rounds', { ...ok, restaurant: '' }), 400, 'VALIDATION', 'D9 มีรอบแล้ว body ผิด', 'restaurant');
+    assertError(await mock(page, 'POST', '/api/rounds', '{', true), 400, 'VALIDATION', 'D9 มีรอบแล้ว ไม่ใช่ JSON', null);
     assertError(await mock(page, 'POST', '/api/rounds', ok), 409, 'ROUND_EXISTS');
   } finally { await ctx.close(); }
 });
 
-test('M2 PUT orders: 200 Order (total คิดที่ server), แทนที่ชื่อเดิมแบบไม่สนตัวพิมพ์ + ตัดช่องว่าง, 400 VALIDATION, 404 NOT_FOUND', async () => {
+test('M1b D10 + ขอบเวลา (นาฬิกาจำลอง): now / now−1s → 400 · now+1s → 201 · 23:59:59 ผ่าน · offset อื่นวันเดียวกันผ่าน', async () => {
+  const { ctx, page } = await openPage({ query: '?mock=empty' });
+  const post = (cutoffAt) => mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt, items: MENU });
+  try {
+    await page.evaluate(() => window.TL.mock.setLatency(0));
+    await pinMock(page, at('10:59:59'));
+    assertError(await post(at('10:59:59')), 400, 'VALIDATION', 'cutoff = now', 'cutoffAt');
+    assertError(await post(at('10:59:58')), 400, 'VALIDATION', 'cutoff = now − 1s', 'cutoffAt');
+    let r = await post(at('11:00:00'));
+    assert.equal(r.status, 201, 'cutoff = now + 1s ' + JSON.stringify(r.body));
+    assert.equal(r.body.status, 'open');
+    assert.equal(r.body.serverNow, at('10:59:59'));
+
+    // ผ่าน (วันเดียวกันตามปฏิทินไทย) — ต้องล้างรอบทุกครั้ง
+    for (const [c, expect] of [
+      [at('23:59:59'), at('23:59:59')],
+      ['2026-10-05T16:59:59Z', at('23:59:59')],
+      ['2026-10-06T01:59:59+09:00', at('23:59:59')],
+      ['2026-10-04T23:00:00-05:00', at('11:00:00')],
+    ]) {
+      await page.evaluate(() => window.TL.mock.reset({ empty: true }));
+      await pinMock(page, at('09:00:00'));
+      r = await post(c);
+      assert.equal(r.status, 201, `[${c}] ${JSON.stringify(r.body)}`);
+      assert.equal(r.body.cutoffAt, expect, c);
+    }
+    // ไม่ผ่าน
+    await page.evaluate(() => window.TL.mock.reset({ empty: true }));
+    await pinMock(page, at('09:00:00'));
+    for (const c of ['2026-10-06T00:00:00+07:00', '2026-10-06T02:00:00+09:00']) {
+      assertError(await post(c), 400, 'VALIDATION', c, 'cutoffAt');
+    }
+    // 23:30 ตั้งปิดพรุ่งนี้ 11:00 → 400 · 23:59:58 ตั้ง 23:59:59 → 201
+    await pinMock(page, at('23:30:00'));
+    assertError(await post('2026-10-06T11:00:00+07:00'), 400, 'VALIDATION', '23:30 → พรุ่งนี้', 'cutoffAt');
+    await pinMock(page, at('23:59:58'));
+    r = await post(at('23:59:59'));
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    await pinMock(page, at('23:59:59.300'));
+    assert.equal((await mock(page, 'GET', '/api/rounds/today')).body.status, 'closed');
+    await pinMock(page, '2026-10-06T00:00:00.300+07:00');
+    assertError(await mock(page, 'GET', '/api/rounds/today'), 404, 'NO_ROUND', 'เที่ยงคืนไทย = วันใหม่');
+  } finally { await ctx.close(); }
+});
+
+test('M2 PUT orders: 200 Order (total คิดที่ server), แทนที่ชื่อเดิมแบบไม่สนตัวพิมพ์ + ตัดช่องว่าง, 400 VALIDATION + field, 404 NOT_FOUND', async () => {
   const { ctx, page } = await openPage({ query: '?mock=empty' });
   try {
     await page.evaluate(() => window.TL.mock.setLatency(0));
-    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: MENU })).body;
+    await pinMock(page, at('09:00:00'));
+    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: at('11:00:00'), items: MENU })).body;
     const [i1, i2, i3] = round.items.map((i) => i.id);
     const url = `/api/rounds/${round.id}/orders`;
 
@@ -139,36 +234,48 @@ test('M2 PUT orders: 200 Order (total คิดที่ server), แทนท�
     assert.deepEqual(o1.body.lines, [{ itemId: i1, qty: 2 }, { itemId: i3, qty: 1 }]);
     assert.match(o1.body.updatedAt, ISO_BKK);
 
-    // F4: " hi " = "Hi" → แทนที่ ไม่เพิ่ม
+    // F4: " hI " = "Hi" → แทนที่ ไม่เพิ่ม
     const o2 = await mock(page, 'PUT', url, { name: '  hI ', lines: [{ itemId: i2, qty: 1 }] });
     assert.equal(o2.status, 200);
     assert.equal(o2.body.id, o1.body.id);
     assert.equal(o2.body.total, 55);
-    const sum = (await mock(page, 'GET', `/api/rounds/${round.id}/summary`)).body;
-    assert.equal(sum.orderCount, 1);
+    assert.equal((await mock(page, 'GET', `/api/rounds/${round.id}/summary`)).body.orderCount, 1);
 
-    // validation ตาม contract
     const ok = { name: 'Bo', lines: [{ itemId: i1, qty: 1 }] };
     const bad = [
-      ['ไม่มีชื่อ', { ...ok, name: undefined }],
-      ['ชื่อช่องว่าง', { ...ok, name: '   ' }],
-      ['ชื่อ 41 ตัว', { ...ok, name: 'ก'.repeat(41) }],
-      ['lines ว่าง', { ...ok, lines: [] }],
-      ['ไม่มี lines', { name: 'Bo' }],
-      ['itemId ไม่อยู่ในรอบ', { ...ok, lines: [{ itemId: 'i99', qty: 1 }] }],
-      ['qty 0', { ...ok, lines: [{ itemId: i1, qty: 0 }] }],
-      ['qty 11', { ...ok, lines: [{ itemId: i1, qty: 11 }] }],
-      ['qty ทศนิยม', { ...ok, lines: [{ itemId: i1, qty: 1.5 }] }],
-      ['qty string', { ...ok, lines: [{ itemId: i1, qty: '2' }] }],
-      ['itemId ซ้ำ', { ...ok, lines: [{ itemId: i1, qty: 1 }, { itemId: i1, qty: 2 }] }],
-      ['note 101 ตัว', { ...ok, note: 'ก'.repeat(101) }],
+      ['ไม่มีชื่อ', { ...ok, name: undefined }, 'name'],
+      ['ชื่อช่องว่าง', { ...ok, name: '   ' }, 'name'],
+      ['ชื่อไม่ใช่ string', { ...ok, name: 7 }, 'name'],
+      ['ชื่อ 41 code point (ไทยมีวรรณยุกต์)', { ...ok, name: 'น้ำ'.repeat(13) + 'ก ' + 'ข' }, 'name'],
+      ['lines ว่าง', { ...ok, lines: [] }, 'lines'],
+      ['ไม่มี lines', { name: 'Bo' }, 'lines'],
+      ['lines ไม่ใช่ array', { ...ok, lines: { itemId: i1, qty: 1 } }, 'lines'],
+      ['line ไม่ใช่ object', { ...ok, lines: [{ itemId: i1, qty: 1 }, 5] }, 'lines[1]'],
+      ['itemId ไม่อยู่ในรอบ', { ...ok, lines: [{ itemId: 'i99', qty: 1 }] }, 'lines[0].itemId'],
+      ['qty 0', { ...ok, lines: [{ itemId: i1, qty: 0 }] }, 'lines[0].qty'],
+      ['qty 11', { ...ok, lines: [{ itemId: i1, qty: 11 }] }, 'lines[0].qty'],
+      ['qty ทศนิยม', { ...ok, lines: [{ itemId: i1, qty: 1.5 }] }, 'lines[0].qty'],
+      ['qty string', { ...ok, lines: [{ itemId: i1, qty: '2' }] }, 'lines[0].qty'],
+      ['qty ผิดบรรทัดที่ 2', { ...ok, lines: [{ itemId: i1, qty: 1 }, { itemId: i2, qty: 0 }] }, 'lines[1].qty'],
+      ['itemId ซ้ำ', { ...ok, lines: [{ itemId: i1, qty: 1 }, { itemId: i1, qty: 2 }] }, /^lines(\[1\](\.itemId)?)?$/],
+      ['note 101 code point', { ...ok, note: 'ก'.repeat(101) }, 'note'],
+      ['note ไม่ใช่ string', { ...ok, note: 5 }, 'note'],
+      ['D9 ผิดทุกจุด → name', { name: '', lines: [], note: 'ก'.repeat(101) }, 'name'],
+      ['D9 lines ก่อน note', { name: 'Bo', lines: [], note: 'ก'.repeat(101) }, 'lines'],
+      ['body array', [ok], null],
     ];
-    for (const [label, body] of bad) assertError(await mock(page, 'PUT', url, body), 400, 'VALIDATION', label);
-    assertError(await mock(page, 'PUT', url, '{x', true), 400, 'VALIDATION', 'ไม่ใช่ JSON');
+    for (const [label, body, field] of bad) assertError(await mock(page, 'PUT', url, body), 400, 'VALIDATION', label, field);
+    assertError(await mock(page, 'PUT', url, '{x', true), 400, 'VALIDATION', 'ไม่ใช่ JSON', null);
 
-    // ขอบที่ต้องผ่าน
-    assert.equal((await mock(page, 'PUT', url, { name: 'ก'.repeat(40), lines: [{ itemId: i1, qty: 10 }], note: 'ข'.repeat(100) })).status, 200);
-    assert.equal((await mock(page, 'PUT', url, { name: 'ไม่ส่งหมายเหตุ', lines: [{ itemId: i2, qty: 1 }] })).status, 200);
+    // ขอบที่ต้องผ่าน: ชื่อ 40 code point, qty 1/10, note 100 emoji (UTF-16 = 200), ไม่ส่ง note
+    const n40 = 'น้ำ'.repeat(13) + 'ก';
+    const e = await mock(page, 'PUT', url, { name: ` ${n40} `, lines: [{ itemId: i1, qty: 10 }, { itemId: i2, qty: 1 }], note: '🌶'.repeat(100) });
+    assert.equal(e.status, 200, JSON.stringify(e.body));
+    assert.equal(e.body.name, n40);
+    assert.equal(e.body.total, 500 + 55);
+    const nn = await mock(page, 'PUT', url, { name: 'ไม่ส่งหมายเหตุ', lines: [{ itemId: i2, qty: 1 }] });
+    assert.equal(nn.status, 200);
+    assert.equal(typeof nn.body.note, 'string');
   } finally { await ctx.close(); }
 });
 
@@ -176,12 +283,13 @@ test('M3 DELETE orders (URL-encode, ไม่สนตัวพิมพ์) 204
   const { ctx, page } = await openPage({ query: '?mock=empty' });
   try {
     await page.evaluate(() => window.TL.mock.setLatency(0));
-    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: MENU })).body;
+    await pinMock(page, at('09:00:00'));
+    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: at('11:00:00'), items: MENU })).body;
     const [i1, i2, i3] = round.items.map((i) => i.id);
     const put = (name, lines, note) => mock(page, 'PUT', `/api/rounds/${round.id}/orders`, { name, lines, note });
     await put('แพร', [{ itemId: i1, qty: 1 }], 'ไม่เอาหนัง');
     await put('Ton Boss', [{ itemId: i1, qty: 2 }, { itemId: i2, qty: 3 }]);
-    await put('มิ้นท์/เอ', [{ itemId: i3, qty: 1 }]);
+    await put('มิ้นท์/เอ?#%', [{ itemId: i3, qty: 1 }]);
 
     const s = await mock(page, 'GET', `/api/rounds/${round.id}/summary`);
     assert.equal(s.status, 200);
@@ -200,44 +308,131 @@ test('M3 DELETE orders (URL-encode, ไม่สนตัวพิมพ์) 204
     assert.deepEqual(s.body.byItem.find((x) => x.itemId === i1), { itemId: i1, name: 'ข้าวมันไก่ต้ม', qty: 3, amount: 150 });
 
     assertError(await mock(page, 'GET', '/api/rounds/r_19990101/summary'), 404, 'NOT_FOUND');
-    // DELETE: ชื่อต้อง URL-encode
     const del = (n) => mock(page, 'DELETE', `/api/rounds/${round.id}/orders/${encodeURIComponent(n)}`);
     assert.equal((await del('  ton boss ')).status, 204);
-    assert.equal((await del('มิ้นท์/เอ')).status, 204);
+    assert.equal((await del('มิ้นท์/เอ?#%')).status, 204);
     assertError(await del('ton boss'), 404, 'NOT_FOUND', 'ลบซ้ำ');
-    assertError(await mock(page, 'DELETE', `/api/rounds/r_19990101/orders/x`), 404, 'NOT_FOUND', 'รอบไม่มี');
+    assertError(await mock(page, 'DELETE', '/api/rounds/r_19990101/orders/x'), 404, 'NOT_FOUND', 'รอบไม่มี');
     const s2 = (await mock(page, 'GET', `/api/rounds/${round.id}/summary`)).body;
     assert.equal(s2.orderCount, 1);
     assert.equal(s2.grandTotal, 50);
   } finally { await ctx.close(); }
 });
 
-test('M4 ปิดรับ: status open ก่อนปิด 1 วิ → closed หลังปิด · PUT / DELETE → 409 ROUND_CLOSED พร้อมข้อความปิดรับ · summary ยังดูได้', async () => {
+test('M4 ปิดรับ ±1 วินาที: open/สั่งได้ก่อนปิด → closed หลังปิด · PUT / DELETE → 409 ROUND_CLOSED (ไม่มี field) · summary / GET order ยังดูได้', async () => {
   const { ctx, page } = await openPage({ query: '?mock=empty' });
   try {
     await page.evaluate(() => window.TL.mock.setLatency(0));
-    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(600), items: MENU })).body;
+    await pinMock(page, at('09:00:00'));
+    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: at('11:00:00'), items: MENU })).body;
     const i1 = round.items[0].id;
-    await mock(page, 'PUT', `/api/rounds/${round.id}/orders`, { name: 'Hi', lines: [{ itemId: i1, qty: 1 }] });
-    const cutoffMs = Date.parse(round.cutoffAt);
+    const url = `/api/rounds/${round.id}/orders`;
+    await mock(page, 'PUT', url, { name: 'Hi', lines: [{ itemId: i1, qty: 1 }] });
+    await mock(page, 'PUT', url, { name: 'ลบก่อนปิด', lines: [{ itemId: i1, qty: 1 }] });
 
-    // เลื่อนนาฬิกา server ไปก่อนปิด ~1 วินาที
-    await page.evaluate((ms) => window.TL.mock.setClockOffset(ms), cutoffMs - Date.now() - 1500);
-    let t = await mock(page, 'GET', '/api/rounds/today');
-    assert.equal(t.body.status, 'open', t.body.serverNow);
-    assert.equal((await mock(page, 'PUT', `/api/rounds/${round.id}/orders`, { name: 'ก่อนปิด', lines: [{ itemId: i1, qty: 1 }] })).status, 200);
+    await pinMock(page, at('10:59:59'));
+    assert.equal((await mock(page, 'GET', '/api/rounds/today')).body.status, 'open');
+    assert.equal((await mock(page, 'PUT', url, { name: 'ก่อนปิด', lines: [{ itemId: i1, qty: 1 }] })).status, 200);
+    assert.equal((await mock(page, 'DELETE', `${url}/${encodeURIComponent('ลบก่อนปิด')}`)).status, 204);
 
-    // หลังปิด 1 วินาที
-    await page.evaluate((ms) => window.TL.mock.setClockOffset(ms), cutoffMs - Date.now() + 1000);
-    t = await mock(page, 'GET', '/api/rounds/today');
-    assert.equal(t.body.status, 'closed');
-    const p = await mock(page, 'PUT', `/api/rounds/${round.id}/orders`, { name: 'Hi', lines: [{ itemId: i1, qty: 2 }] });
+    await pinMock(page, at('11:00:00'));
+    assert.equal((await mock(page, 'GET', '/api/rounds/today')).body.status, 'closed', 'ตรงเวลาปิด = closed');
+    await pinMock(page, at('11:00:01'));
+    assert.equal((await mock(page, 'GET', '/api/rounds/today')).body.status, 'closed');
+    const p = await mock(page, 'PUT', url, { name: 'Hi', lines: [{ itemId: i1, qty: 2 }] });
     assertError(p, 409, 'ROUND_CLOSED');
-    assert.match(p.body.error.message, /ปิดรับ/);
-    assertError(await mock(page, 'DELETE', `/api/rounds/${round.id}/orders/Hi`), 409, 'ROUND_CLOSED');
+    assert.match(p.body.error.message, /ปิดรับ.*11:00/);
+    assertError(await mock(page, 'PUT', url, { name: 'คนใหม่', lines: [{ itemId: i1, qty: 1 }] }), 409, 'ROUND_CLOSED', 'คนใหม่หลังปิด');
+    assertError(await mock(page, 'DELETE', `${url}/Hi`), 409, 'ROUND_CLOSED');
     const s = await mock(page, 'GET', `/api/rounds/${round.id}/summary`);
     assert.equal(s.status, 200);
     assert.equal(s.body.orderCount, 2);
+    assert.equal(s.body.byPerson.find((x) => x.name === 'Hi').total, 50, 'order เดิมต้องไม่ถูกแก้หลังปิด');
+    const g = await mock(page, 'GET', `${url}/hi`);
+    assert.equal(g.status, 200, 'D12 ดูได้หลังปิดรับ');
+  } finally { await ctx.close(); }
+});
+
+test('M5 D9 ลำดับการตรวจ PUT / DELETE: NOT_FOUND (ไม่มีรอบ) → VALIDATION → ROUND_CLOSED', async () => {
+  const { ctx, page } = await openPage({ query: '?mock=empty' });
+  try {
+    await page.evaluate(() => window.TL.mock.setLatency(0));
+    await pinMock(page, at('09:00:00'));
+    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: at('11:00:00'), items: MENU })).body;
+    const url = `/api/rounds/${round.id}/orders`;
+    // ไม่มีรอบ + body ผิด → NOT_FOUND
+    assertError(await mock(page, 'PUT', '/api/rounds/r_nope/orders', { name: '' }), 404, 'NOT_FOUND', 'ไม่มีรอบ + body ผิด');
+    assertError(await mock(page, 'PUT', '/api/rounds/r_nope/orders', '{', true), 404, 'NOT_FOUND', 'ไม่มีรอบ + ไม่ใช่ JSON');
+    assertError(await mock(page, 'DELETE', `/api/rounds/r_nope/orders/${encodeURIComponent(' ')}`), 404, 'NOT_FOUND', 'DELETE ไม่มีรอบ');
+    // ปิดแล้ว + body ผิด → VALIDATION
+    await pinMock(page, at('11:00:01'));
+    assertError(await mock(page, 'PUT', url, { name: '', lines: [] }), 400, 'VALIDATION', 'ปิดแล้ว + body ผิด', 'name');
+    assertError(await mock(page, 'PUT', url, '{', true), 400, 'VALIDATION', 'ปิดแล้ว + ไม่ใช่ JSON', null);
+    assertError(await mock(page, 'PUT', url, { name: 'Hi', lines: [{ itemId: 'zz', qty: 1 }] }), 400, 'VALIDATION', 'ปิดแล้ว + itemId ผิด', 'lines[0].itemId');
+    assertError(await mock(page, 'PUT', url, { name: 'Hi', lines: [{ itemId: round.items[0].id, qty: 1 }] }), 409, 'ROUND_CLOSED', 'ปิดแล้ว + body ถูก');
+  } finally { await ctx.close(); }
+});
+
+test('M6 D12 GET /api/rounds/:id/orders/:name: 200 Order (URL-encode, ไม่สนตัวพิมพ์ + ตัดช่องว่าง) / 404 NOT_FOUND · TL.api.getOrder + ApiError.field', async () => {
+  const { ctx, page } = await openPage({ query: '?mock=empty' });
+  try {
+    await page.evaluate(() => window.TL.mock.setLatency(0));
+    await pinMock(page, at('09:00:00'));
+    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: at('11:00:00'), items: MENU })).body;
+    const url = `/api/rounds/${round.id}/orders`;
+    const put = await mock(page, 'PUT', url, { name: 'Ton Boss/ต้น?', lines: [{ itemId: round.items[1].id, qty: 2 }], note: 'แยกน้ำ' });
+    assert.equal(put.status, 200);
+    for (const n of ['Ton Boss/ต้น?', '  ton boss/ต้น? ', 'TON BOSS/ต้น?']) {
+      const g = await mock(page, 'GET', `${url}/${encodeURIComponent(n)}`);
+      assert.equal(g.status, 200, `[${n}] ${JSON.stringify(g.body)}`);
+      assert.deepEqual(Object.keys(g.body).sort(), ORDER_KEYS);
+      assert.deepEqual(g.body, put.body);
+    }
+    assertError(await mock(page, 'GET', `${url}/${encodeURIComponent('ไม่ได้สั่ง')}`), 404, 'NOT_FOUND', 'ยังไม่ได้สั่ง');
+    assertError(await mock(page, 'GET', `/api/rounds/r_19990101/orders/Hi`), 404, 'NOT_FOUND', 'ไม่มีรอบ');
+    assertError(await mock(page, 'GET', `/api/rounds/toString/orders/Hi`), 404, 'NOT_FOUND', 'id รอบชื่อ toString');
+    // หลังลบแล้วต้องได้ 404
+    assert.equal((await mock(page, 'DELETE', `${url}/${encodeURIComponent('ton boss/ต้น?')}`)).status, 204);
+    assertError(await mock(page, 'GET', `${url}/${encodeURIComponent('Ton Boss/ต้น?')}`), 404, 'NOT_FOUND', 'หลังลบ');
+
+    // ชั้น api.js: getOrder URL-encode ชื่อเอง, ApiError มี field เฉพาะ VALIDATION
+    const r = await page.evaluate(async (rid) => {
+      const out = {};
+      await TL.api.putOrder(rid, { name: 'แพร #1', lines: [{ itemId: 'i1', qty: 1 }] });
+      out.get = await TL.api.getOrder(rid, ' แพร #1 ');
+      try { await TL.api.getOrder(rid, 'ไม่มี'); } catch (e) { out.nf = { inst: e instanceof TL.ApiError, status: e.status, code: e.code, hasField: 'field' in e }; }
+      try { await TL.api.putOrder(rid, { name: 'x', lines: [{ itemId: 'i1', qty: 99 }] }); } catch (e) { out.v = { status: e.status, code: e.code, field: e.field, msg: e.message }; }
+      try { await TL.api.createRound([]); } catch (e) { out.vnull = { code: e.code, field: e.field, hasField: 'field' in e }; }
+      return out;
+    }, round.id);
+    assert.equal(r.get.name, 'แพร #1');
+    assert.deepEqual(r.nf, { inst: true, status: 404, code: 'NOT_FOUND', hasField: false });
+    assert.equal(r.v.status, 400);
+    assert.equal(r.v.code, 'VALIDATION');
+    assert.equal(r.v.field, 'lines[0].qty');
+    assert.match(r.v.msg, /[฀-๿]/);
+    assert.deepEqual(r.vnull, { code: 'VALIDATION', field: null, hasField: true });
+  } finally { await ctx.close(); }
+});
+
+test('M7 ส่งพร้อมกัน: PUT 10 request ชื่อเดียวกันต่างตัวพิมพ์ → order เดียว · POST เปิดรอบพร้อมกัน 5 → 201 หนึ่งครั้ง', async () => {
+  const { ctx, page } = await openPage({ query: '?mock=empty' });
+  try {
+    await page.evaluate(() => window.TL.mock.setLatency(20));
+    await pinMock(page, at('09:00:00'));
+    const posts = await page.evaluate((c) => Promise.all(Array.from({ length: 5 }, (_, i) =>
+      window.TL.mockServer.handle('POST', '/api/rounds', JSON.stringify({ restaurant: 'ร้าน ' + i, cutoffAt: c, items: [{ name: 'ข้าว', price: 50 }] })))), at('11:00:00'));
+    assert.equal(posts.filter((r) => r.status === 201).length, 1);
+    posts.filter((r) => r.status !== 201).forEach((r) => assertError(r, 409, 'ROUND_EXISTS'));
+    const rid = posts.find((r) => r.status === 201).body.id;
+    const names = ['Hi', 'hi', ' HI ', 'hI', 'Hi ', ' hi', 'HI', 'hi  ', 'Hi', 'hI '];
+    const puts = await page.evaluate(([id, ns]) => Promise.all(ns.map((n, i) =>
+      window.TL.mockServer.handle('PUT', `/api/rounds/${id}/orders`, JSON.stringify({ name: n, lines: [{ itemId: 'i1', qty: (i % 10) + 1 }] })))), [rid, names]);
+    puts.forEach((r) => assert.equal(r.status, 200));
+    assert.equal(new Set(puts.map((r) => r.body.id)).size, 1, 'ต้องเป็น order เดียวกัน');
+    const s = (await mock(page, 'GET', `/api/rounds/${rid}/summary`)).body;
+    assert.equal(s.orderCount, 1);
+    assert.equal(s.grandTotal, s.byPerson[0].total);
   } finally { await ctx.close(); }
 });
 
@@ -410,30 +605,40 @@ test('U4 คีย์บอร์ด: skip link, Tab ไปถึงปุ่ม
   } finally { await ctx.close(); }
 });
 
-for (const [w, h] of [[360, 640], [360, 780], [1280, 900]]) {
-  test(`U5 ${w}x${h}: element ที่ได้ focus ต้องไม่ถูกแถบยอดติดล่างจอบัง (F8 เห็น focus ชัด)`, async () => {
-    const { ctx, page } = await openPage({ width: w, height: h });
+for (const [w, h, scheme] of [[360, 640, 'light'], [360, 780, 'dark'], [390, 844, 'light'], [768, 1024, 'dark'], [1280, 720, 'light'], [1280, 900, 'dark']]) {
+  test(`U5 ${w}x${h} ${scheme}: element ที่ได้ focus (Tab และ Shift+Tab, ก่อน/หลังเลือกเมนู) ต้องไม่ถูกแถบยอดติดล่างบัง และไม่หลุดขอบบน (F8)`, async () => {
+    const { ctx, page } = await openPage({ width: w, height: h, scheme });
     try {
       await page.waitForSelector('#board .dish');
       await sleep(300);
       const hidden = [];
       let shot = false;
-      for (let i = 0; i < 25; i++) {
-        await page.keyboard.press('Tab');
+      const check = async (key, phase) => {
+        await page.keyboard.press(key);
+        await sleep(30);
         const r = await page.evaluate(() => {
           const el = document.activeElement;
           if (el === document.body || el.closest('#orderbar')) return null;
           const a = el.getBoundingClientRect();
           const bar = document.querySelector('#orderbar').getBoundingClientRect();
           const overlap = Math.min(a.bottom, bar.bottom) - Math.max(a.top, bar.top);
-          return { label: el.getAttribute('aria-label') || el.id || el.textContent.trim().slice(0, 15), overlapPx: Math.round(overlap), height: Math.round(a.height) };
+          return { label: el.getAttribute('aria-label') || el.id || el.className || el.textContent.trim().slice(0, 15), overlapPx: Math.round(overlap), top: Math.round(a.top), height: Math.round(a.height) };
         });
-        if (r && r.overlapPx > 0 && !hidden.some((x) => x.label === r.label)) {
-          if (!shot && r.overlapPx >= 40 && (shot = true)) await page.screenshot({ path: path.join(SHOTS, `fe-1-${w}x${h}-focus-under-orderbar.png`) });
-          hidden.push(r);
+        if (r && (r.overlapPx > 0 || r.top < 0)) {
+          if (!shot && (shot = true)) await page.screenshot({ path: path.join(SHOTS, `fe-1-${w}x${h}-focus-hidden.png`) });
+          hidden.push({ phase, key, ...r });
         }
-      }
-      assert.deepEqual(hidden, [], 'focus ถูกแถบยอดบัง');
+      };
+      for (let i = 0; i < 30; i++) await check('Tab', 'ว่าง');
+      for (let i = 0; i < 30; i++) await check('Shift+Tab', 'ว่าง');
+      // เลือกเมนูแล้ว (แถบยอดแสดงจำนวน/ยอด) ลองใหม่
+      await page.locator('#board .dish').nth(0).locator('[data-step="1"]').click();
+      await page.locator('#board .dish').nth(3).locator('[data-step="1"]').click();
+      await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
+      for (let i = 0; i < 30; i++) await check('Tab', 'เลือกแล้ว');
+      for (let i = 0; i < 30; i++) await check('Shift+Tab', 'เลือกแล้ว');
+      assert.deepEqual(hidden, [], 'focus ถูกบัง / หลุดจอ');
+      await page.screenshot({ path: path.join(SHOTS, `fe-1-${w}x${h}-${scheme}-focus.png`) });
     } finally { await ctx.close(); }
   });
 }
@@ -595,7 +800,17 @@ test('R1 หน้าเว็บผ่าน backend จริง (?api=real �
       ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(-5), items: MENU }],
       ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: [] }],
       ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: [{ name: 'a', price: 1.5 }] }],
+      ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: [MENU[0], { name: 'a', price: 10001 }] }],
+      ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: [{ name: 'a', price: 2 ** 53 }] }],
+      ['POST', '/api/rounds', { restaurant: 'ข้าว'.repeat(15) + 'ก', cutoffAt: futureIso(3600), items: MENU }],
+      ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: [MENU[0], { name: '🍚'.repeat(61), price: 5 }] }],
+      ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: toBkk(endOfBkkDay() + 1000), items: MENU }],
+      ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600).slice(0, 19), items: MENU }],
+      ['POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureIso(3600), items: [MENU[0], 'x'] }],
+      ['POST', '/api/rounds', { restaurant: '', cutoffAt: 'x', items: [] }],
+      ['POST', '/api/rounds', [{ restaurant: 'ร้าน' }]],
       ['POST', '/api/rounds', { restaurant: 'ร้านป้าแดง', cutoffAt: futureIso(3600), items: MENU }],
+      ['POST', '/api/rounds', { restaurant: '', cutoffAt: futureIso(3600), items: MENU }],
       ['GET', '/api/rounds/today'],
       ['POST', '/api/rounds', { restaurant: 'ร้านอื่น', cutoffAt: futureIso(3600), items: MENU }],
     ];
@@ -603,7 +818,11 @@ test('R1 หน้าเว็บผ่าน backend จริง (?api=real �
       const real = await http(m, p, b);
       const fake = await mock(page, m, p, b);
       assert.equal(fake.status, real.status, `${m} ${p} ${JSON.stringify(b)}`);
-      if (real.body && real.body.error) assert.equal(fake.body.error.code, real.body.error.code);
+      if (real.body && real.body.error) {
+        assert.equal(fake.body.error.code, real.body.error.code, `${m} ${p} ${JSON.stringify(b)}`);
+        assert.deepEqual(Object.keys(fake.body.error).sort(), Object.keys(real.body.error).sort(), `${m} ${p} ${JSON.stringify(b)} key ของ error`);
+        assert.equal(fake.body.error.field, real.body.error.field, `${m} ${p} ${JSON.stringify(b)} field`);
+      }
       else assert.deepEqual(Object.keys(fake.body).sort(), Object.keys(real.body).sort());
       if (real.status === 200 || real.status === 201) {
         assert.equal(fake.body.id, real.body.id);
