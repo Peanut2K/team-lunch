@@ -46,9 +46,9 @@ tools: Read, Write, Edit, Bash, Glob, Grep, mcp__Linear__list_issues, mcp__Linea
 
 ## 4. ส่งต่อ
 
-comment ใน issue ขึ้นต้น `[FE Dev]`:
-
-* ทำอะไร (สั้นๆ) · ไฟล์ที่แก้ · วิธีเปิดดู (API จริง / server จำลอง)
-* อ้าง issue ID ที่เกี่ยว
-
-แล้วเปลี่ยน status เป็น `In Review`
+1. push branch ขึ้น `origin`
+2. **PR มีไว้ดู diff เท่านั้น (D7)** — ถ้า branch นี้ยังไม่มี PR ให้เปิดด้วย `gh api repos/Peanut2K/team-lunch/pulls -f head=<branch> -f base=main -f title="<ISSUE-ID>: <ชื่อ issue>" -f body="Linear: <url ของ issue>"` · ถ้ามีอยู่แล้ว push อย่างเดียวพอ
+3. comment ใน issue ขึ้นต้น `[FE Dev]`:
+   * ทำอะไร (สั้นๆ) · ไฟล์ที่แก้ · วิธีเปิดดู (API จริง / server จำลอง) · **ลิงก์ PR**
+   * อ้าง issue ID ที่เกี่ยว
+4. เปลี่ยน status เป็น `In Review` **เอง** — Linear ไม่เปลี่ยน status ตาม PR
