@@ -23,7 +23,8 @@
 
 * 1 issue = 1 branch ตามชื่อที่ Linear ตั้งให้ (`gitBranchName` ของ issue)
 * commit ทุกครั้งที่ติ๊ก checklist 1 ข้อ · ข้อความ commit ขึ้นต้นด้วย issue ID เช่น `BE-21: POST /api/rounds validation`
-* QA ผ่านแล้ว merge เข้า `main`
+* QA ผ่านแล้ว merge PR เข้า `main`
+* **PR มีไว้ดู diff เท่านั้น (Decision log D7)** — ปิด Git automation ของ Linear ไว้ · agent เปลี่ยน status ใน Linear เองทุกครั้ง
 
 ## รัน
 

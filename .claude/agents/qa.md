@@ -30,6 +30,6 @@ tools: Read, Write, Bash, Glob, Grep, mcp__Linear__list_issues, mcp__Linear__get
 
 ## 4. ตัดสิน
 
-* **ผ่านทุกข้อ** → comment `[QA] ผ่าน` พร้อมรายการที่ตรวจ → merge branch เข้า `main` (push ถ้ามี remote) → status `Done`
+* **ผ่านทุกข้อ** → comment `[QA] ผ่าน` พร้อมรายการที่ตรวจ → push commit ของ QA → merge PR ด้วย `gh api -X PUT repos/Peanut2K/team-lunch/pulls/<n>/merge -f merge_method=merge` → status `Done` **เอง** (Linear ไม่เปลี่ยนตาม PR — D7)
 * **ไม่ผ่าน** → comment `[QA] ไม่ผ่าน` บอก: acceptance ข้อไหน, ทำซ้ำยังไง, ได้ผลอะไร vs ควรได้อะไร → status `Todo`
 * ถ้าเป็นใบสุดท้ายของ parent และลูกทุกใบ `Done` แล้ว → เปลี่ยน parent เป็น `In Review` และ comment `[QA] ลูกครบ รอ Human review`
