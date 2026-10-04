@@ -196,10 +196,244 @@
     };
   }
 
+  /* ---------- component: กระดานเมนู + ปุ่ม − / + ---------- */
+  var MAX_QTY = 10;
+
+  /**
+   * items: [{ id, name, price }] จาก Round
+   * opts.qty      : { itemId: qty } เริ่มต้น
+   * opts.onChange : (qtyMap) => void
+   * opts.disabled : true เมื่อปิดรับ
+   * คืน { getQty(), setQty(map), getLines(), setDisabled(bool) }
+   */
+  function menuBoard(el, items, opts) {
+    opts = opts || {};
+    var qty = {};
+    items.forEach(function (it) { qty[it.id] = (opts.qty && opts.qty[it.id]) || 0; });
+    var disabled = !!opts.disabled;
+
+    el.classList.add('board');
+    el.setAttribute('role', 'list');
+    el.innerHTML = items.map(function (it) {
+      var n = escapeHtml(it.name);
+      return '<li class="dish" data-item="' + escapeHtml(it.id) + '">' +
+        '<p class="dish__info">' +
+          '<span class="dish__name">' + n + '</span>' +
+          '<span class="dish__leader" aria-hidden="true"></span>' +
+          '<span class="dish__price"><span class="num">' + fmt.baht(it.price) + '</span> <span class="dish__unit">บาท</span></span>' +
+        '</p>' +
+        '<div class="stepper" role="group" aria-label="จำนวน ' + n + '">' +
+          '<button type="button" class="stepper__btn" data-step="-1" aria-label="ลด ' + n + '">' + icons.minus(20) + '</button>' +
+          '<output class="stepper__qty num" aria-live="polite">0</output>' +
+          '<button type="button" class="stepper__btn" data-step="1" aria-label="เพิ่ม ' + n + '">' + icons.plus(20) + '</button>' +
+        '</div>' +
+      '</li>';
+    }).join('');
+
+    function paint() {
+      el.toggleAttribute('data-disabled', disabled);
+      Array.prototype.forEach.call(el.querySelectorAll('.dish'), function (row) {
+        var id = row.getAttribute('data-item');
+        var n = qty[id];
+        row.toggleAttribute('data-selected', n > 0);
+        row.querySelector('.stepper__qty').textContent = n;
+        row.querySelector('[data-step="-1"]').disabled = disabled || n <= 0;
+        row.querySelector('[data-step="1"]').disabled = disabled || n >= MAX_QTY;
+      });
+    }
+
+    el.addEventListener('click', function (e) {
+      var btn = e.target.closest('.stepper__btn');
+      if (!btn || btn.disabled || disabled) return;
+      var id = btn.closest('.dish').getAttribute('data-item');
+      var next = Math.min(MAX_QTY, Math.max(0, qty[id] + Number(btn.getAttribute('data-step'))));
+      if (next === qty[id]) return;
+      qty[id] = next;
+      paint();
+      // ปุ่มที่กดอาจ disabled ไปแล้ว (เช่นลดถึง 0) — ย้าย focus ไปปุ่มอีกฝั่งให้คีย์บอร์ดไม่หลุด
+      if (btn.disabled) {
+        var other = btn.parentNode.querySelector('.stepper__btn:not([disabled])');
+        if (other) other.focus();
+      }
+      if (opts.onChange) opts.onChange(Object.assign({}, qty));
+    });
+
+    paint();
+    return {
+      getQty: function () { return Object.assign({}, qty); },
+      setQty: function (map) {
+        items.forEach(function (it) { qty[it.id] = (map && map[it.id]) || 0; });
+        paint();
+        if (opts.onChange) opts.onChange(Object.assign({}, qty));
+      },
+      /** [{ itemId, qty }] เฉพาะที่เลือก — รูปแบบเดียวกับ body ของ PUT orders */
+      getLines: function () {
+        return items.filter(function (it) { return qty[it.id] > 0; })
+          .map(function (it) { return { itemId: it.id, qty: qty[it.id] }; });
+      },
+      setDisabled: function (v) { disabled = !!v; paint(); }
+    };
+  }
+
+  /**
+   * ยอดก่อนยืนยัน (แสดงให้เห็นก่อนกด — ยอดจริงคือ total ที่ API ตอบกลับ)
+   */
+  function previewTotal(items, qtyMap) {
+    var dishes = 0;
+    var total = 0;
+    items.forEach(function (it) {
+      var n = qtyMap[it.id] || 0;
+      dishes += n;
+      total += n * it.price;
+    });
+    return { dishes: dishes, total: total };
+  }
+
+  /* ---------- component: แถบยอด + ปุ่มยืนยัน (ติดล่างจอ ใช้นิ้วโป้งกดได้) ---------- */
+  /**
+   * opts: { onConfirm, label } · คืน { set({ dishes, total, disabled, busy, label }) }
+   */
+  function orderBar(el, opts) {
+    opts = opts || {};
+    el.classList.add('orderbar');
+    el.innerHTML =
+      '<div class="orderbar__inner">' +
+        '<p class="orderbar__sum">' +
+          '<span class="orderbar__label"></span>' +
+          '<span class="orderbar__total"><span class="num"></span> <span class="orderbar__unit">บาท</span></span>' +
+        '</p>' +
+        '<button type="button" class="btn btn--primary orderbar__btn"></button>' +
+      '</div>';
+    var labelEl = el.querySelector('.orderbar__label');
+    var totalEl = el.querySelector('.orderbar__total .num');
+    var btn = el.querySelector('.orderbar__btn');
+    btn.addEventListener('click', function () { if (opts.onConfirm) opts.onConfirm(); });
+
+    function set(s) {
+      s = s || {};
+      var dishes = s.dishes || 0;
+      labelEl.textContent = dishes > 0 ? 'ยอดของคุณ ' + dishes + ' จาน' : 'ยังไม่ได้เลือกเมนู';
+      totalEl.textContent = fmt.baht(s.total || 0);
+      btn.textContent = s.busy ? 'กำลังส่ง…' : (s.label || opts.label || 'ยืนยันสั่ง');
+      btn.disabled = !!s.disabled || !!s.busy || dishes === 0;
+      btn.setAttribute('aria-busy', s.busy ? 'true' : 'false');
+    }
+    set({});
+    return { set: set };
+  }
+
+  /* ---------- component: ข้อความแจ้ง (error จาก API / ปิดรับ / ข้อมูล) ---------- */
+  /**
+   * kind: 'error' | 'closed' | 'info' · message: แสดงตรงๆ (เช่น error.message จาก API)
+   * ส่ง message ว่างเพื่อซ่อน
+   */
+  function notice(el, message, kind) {
+    kind = kind || 'error';
+    if (!message) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.className = 'notice notice--' + kind;
+    el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    var icon = kind === 'closed' ? icons.lock(20) : kind === 'info' ? icons.check(20) : icons.alert(20);
+    el.innerHTML = '<span class="notice__icon">' + icon + '</span><p class="notice__text">' + escapeHtml(message) + '</p>';
+  }
+
+  /* ---------- component: สถานะว่าง ---------- */
+  /**
+   * opts: { title, body, actionLabel, onAction }
+   */
+  function emptyState(el, opts) {
+    el.className = 'empty';
+    el.innerHTML =
+      '<span class="empty__art">' + icons.bowl(40) + '</span>' +
+      '<h2 class="empty__title">' + escapeHtml(opts.title) + '</h2>' +
+      (opts.body ? '<p class="empty__body">' + escapeHtml(opts.body) + '</p>' : '') +
+      (opts.actionLabel ? '<button type="button" class="btn btn--secondary empty__action">' + escapeHtml(opts.actionLabel) + '</button>' : '');
+    var a = el.querySelector('.empty__action');
+    if (a && opts.onAction) a.addEventListener('click', opts.onAction);
+  }
+
+  /* ---------- component: "สั่งแล้ว" ---------- */
+  /**
+   * order: Order จาก API ({ name, lines: [{ itemId, qty, name? }], note, total, updatedAt? })
+   * items: เมนูของรอบ (ไว้แปลง itemId → ชื่อ)
+   * opts: { onEdit, onCancel, disabled }
+   */
+  function orderDone(el, order, items, opts) {
+    opts = opts || {};
+    var nameById = {};
+    (items || []).forEach(function (it) { nameById[it.id] = it.name; });
+    var when = order.updatedAt ? ' เมื่อ ' + fmt.hhmm(order.updatedAt) : '';
+    el.className = 'done';
+    el.setAttribute('role', 'status');
+    el.innerHTML =
+      '<div class="done__head">' +
+        '<span class="done__badge">' + icons.check(22) + '</span>' +
+        '<div>' +
+          '<h3 class="done__title">สั่งแล้ว</h3>' +
+          '<p class="done__meta">ในชื่อ ' + escapeHtml(order.name) + escapeHtml(when) + '</p>' +
+        '</div>' +
+      '</div>' +
+      '<ul class="done__lines">' + order.lines.map(function (ln) {
+        return '<li><span>' + escapeHtml(ln.name || nameById[ln.itemId] || ln.itemId) + '</span>' +
+          '<span class="num">× ' + ln.qty + '</span></li>';
+      }).join('') + '</ul>' +
+      (order.note ? '<p class="done__note">' + icons.note(18) + '<span>' + escapeHtml(order.note) + '</span></p>' : '') +
+      '<p class="done__total"><span>ยอดที่ต้องจ่าย</span><span><span class="num">' + fmt.baht(order.total) + '</span> บาท</span></p>' +
+      '<div class="done__actions">' +
+        '<button type="button" class="btn btn--secondary" data-act="edit">' + icons.edit(20) + 'แก้ order</button>' +
+        '<button type="button" class="btn btn--quiet" data-act="cancel">ยกเลิก order</button>' +
+      '</div>';
+    Array.prototype.forEach.call(el.querySelectorAll('[data-act]'), function (b) {
+      b.disabled = !!opts.disabled;
+      b.addEventListener('click', function () {
+        var fn = b.getAttribute('data-act') === 'edit' ? opts.onEdit : opts.onCancel;
+        if (fn) fn();
+      });
+    });
+  }
+
+  /* ---------- component: สรุปยอด (ตัวเลขทั้งหมดมาจาก API) ---------- */
+  function summary(el, s) {
+    el.className = 'tally';
+    var byItem = s.byItem.slice().sort(function (a, b) { return b.qty - a.qty; });
+    el.innerHTML =
+      '<div class="tally__totals">' +
+        '<p><span class="tally__grand num">' + fmt.baht(s.grandTotal) + '</span> <span class="tally__unit">บาท</span></p>' +
+        '<p class="tally__count">รวมจาก <span class="num">' + s.orderCount + '</span> คน</p>' +
+      '</div>' +
+      '<h3 class="tally__heading">สั่งร้าน</h3>' +
+      (byItem.length ? '<ol class="tally__items">' + byItem.map(function (it) {
+        return '<li class="tally__item">' +
+          '<span class="tally__qty num">' + it.qty + '</span>' +
+          '<span class="tally__name">' + escapeHtml(it.name) + '</span>' +
+          '<span class="tally__amount"><span class="num">' + fmt.baht(it.amount) + '</span> บาท</span>' +
+        '</li>';
+      }).join('') + '</ol>' : '<p class="tally__none">ยังไม่มีใครสั่ง</p>') +
+      '<h3 class="tally__heading">เก็บเงินรายคน</h3>' +
+      (s.byPerson.length ? '<ul class="tally__people">' + s.byPerson.map(function (p) {
+        return '<li class="person">' +
+          '<p class="person__head"><span class="person__name">' + escapeHtml(p.name) + '</span>' +
+            '<span class="person__total"><span class="num">' + fmt.baht(p.total) + '</span> บาท</span></p>' +
+          '<p class="person__lines">' + p.lines.map(function (ln) {
+            return escapeHtml(ln.name) + ' × ' + ln.qty;
+          }).join(', ') + '</p>' +
+          (p.note ? '<p class="person__note">' + icons.note(16) + '<span>' + escapeHtml(p.note) + '</span></p>' : '') +
+        '</li>';
+      }).join('') + '</ul>' : '<p class="tally__none">ยังไม่มีใครสั่ง</p>');
+  }
+
+  TL.ui = TL.ui || {};
+  TL.ui.menuBoard = menuBoard;
+  TL.ui.previewTotal = previewTotal;
+  TL.ui.orderBar = orderBar;
+  TL.ui.notice = notice;
+  TL.ui.emptyState = emptyState;
+  TL.ui.orderDone = orderDone;
+  TL.ui.summary = summary;
+
   TL.fmt = fmt;
   TL.clock = clock;
   TL.icons = icons;
   TL.escapeHtml = escapeHtml;
-  TL.ui = TL.ui || {};
   TL.ui.cutoff = cutoff;
 })();

@@ -34,6 +34,26 @@
       <div id="cutoff"></div>
     </section>
 
+    <div id="no-round" hidden></div>
+
+    <!-- สั่งอาหาร: กระดานเมนู + ชื่อ + หมายเหตุ -->
+    <section id="order" class="stack" aria-labelledby="order-title" hidden>
+      <h2 class="kit__title" id="order-title">เลือกเมนู</h2>
+      <ul id="board"></ul>
+      <form class="order-form" id="order-form" novalidate>
+        <label class="field">
+          <span class="field__label">ชื่อของคุณ</span>
+          <input class="field__input" id="name" name="name" type="text" autocomplete="nickname" maxlength="40" placeholder="ชื่อที่ทีมเรียก">
+        </label>
+        <label class="field">
+          <span class="field__label">หมายเหตุถึงร้าน <span class="field__hint">(ไม่บังคับ)</span></span>
+          <textarea class="field__input" id="note" name="note" rows="2" maxlength="100" placeholder="เช่น ไม่เอาหนัง น้ำจิ้มแยก"></textarea>
+        </label>
+      </form>
+      <div id="order-notice" hidden></div>
+      <div id="order-done" hidden></div>
+    </section>
+
     <div class="kit stack-lg">
       <section class="kit__section" aria-labelledby="kit-cutoff">
         <h2 class="kit__title" id="kit-cutoff">แถบเวลาปิดรับ 3 สถานะ</h2>
@@ -44,8 +64,50 @@
           <div id="sample-closed"></div>
         </div>
       </section>
+
+      <section class="kit__section stack" aria-labelledby="kit-notice">
+        <div>
+          <h2 class="kit__title" id="kit-notice">ข้อความจาก server</h2>
+          <p class="kit__desc">แสดง message ที่ API ตอบมาตรงๆ</p>
+        </div>
+        <div id="sample-notice-error"></div>
+        <div id="sample-notice-closed"></div>
+      </section>
+
+      <section class="kit__section stack" aria-labelledby="kit-done">
+        <div>
+          <h2 class="kit__title" id="kit-done">หลังกดยืนยันสั่ง</h2>
+          <p class="kit__desc">สรุปสิ่งที่สั่งพร้อมยอดที่ server คำนวณ แก้หรือยกเลิกได้จนถึงเวลาปิดรับ</p>
+        </div>
+        <div id="sample-done"></div>
+      </section>
+
+      <section class="kit__section stack" aria-labelledby="kit-empty">
+        <h2 class="kit__title" id="kit-empty">วันนี้ยังไม่มีรอบสั่ง</h2>
+        <div id="sample-empty"></div>
+      </section>
+
+      <section class="kit__section stack" aria-labelledby="kit-summary">
+        <div>
+          <h2 class="kit__title" id="kit-summary">สรุปยอดของรอบนี้</h2>
+          <p class="kit__desc">ยอดต่อเมนูตัวใหญ่ เรียงจากมากไปน้อย ไว้ถือคุยกับร้าน ตัวเลขทุกตัวมาจาก server</p>
+        </div>
+        <div id="summary"></div>
+      </section>
+
+      <section class="kit__section" aria-labelledby="kit-buttons">
+        <h2 class="kit__title" id="kit-buttons">ปุ่ม</h2>
+        <div class="kit__buttons">
+          <button type="button" class="btn btn--primary">ยืนยันสั่ง</button>
+          <button type="button" class="btn btn--secondary">แก้ order</button>
+          <button type="button" class="btn btn--quiet">ยกเลิก order</button>
+          <button type="button" class="btn btn--primary" disabled>ยืนยันสั่ง</button>
+        </div>
+      </section>
     </div>
   </main>
+
+  <div id="orderbar" hidden></div>
 
   <script src="mock-server.js"></script>
   <script src="api.js"></script>

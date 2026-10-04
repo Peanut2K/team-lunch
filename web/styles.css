@@ -211,6 +211,12 @@ svg { display: block; flex-shrink: 0; }
   font-size: var(--fs-lg);
 }
 .btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+/* กดไม่ได้ (ยังไม่เลือก / ปิดรับแล้ว) = เทาอุ่น ไม่ใช่ส้มจาง */
+.btn--primary:disabled {
+  opacity: 1;
+  background: var(--closed-soft);
+  color: var(--closed);
+}
 
 .btn--secondary {
   background: var(--surface);
@@ -414,3 +420,285 @@ textarea.field__input { min-height: 72px; resize: vertical; }
 .kit__samples > * { margin-top: var(--s-4); }
 .kit__samples .cutoff__time { font-size: var(--fs-2xl); letter-spacing: -0.02em; }
 .kit__samples .cutoff { padding-bottom: var(--s-4); }
+
+/* ---------- กระดานเมนู ---------- */
+.board {
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: var(--s-2);
+}
+.dish {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border-radius: var(--r-row);
+  transition: background-color var(--dur) var(--ease);
+}
+.dish + .dish { margin-top: 2px; }
+.dish[data-selected] { background: var(--accent-soft); }
+.dish__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.dish__name {
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.dish__leader {
+  flex: 1;
+  min-width: var(--s-3);
+  border-bottom: 2px dotted var(--line-strong);
+  transform: translateY(-0.3em);
+}
+.dish__price { white-space: nowrap; font-size: var(--fs-lg); }
+.dish__unit { font-size: var(--fs-xs); color: var(--ink-2); font-weight: 400; }
+.dish[data-selected] .dish__name { font-weight: 600; }
+
+/* ปุ่ม − / + */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  transition: border-color var(--dur) var(--ease);
+}
+.stepper__btn {
+  display: inline-grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.stepper__btn:hover:not(:disabled) { background: var(--surface-2); }
+.stepper__btn:active:not(:disabled) { transform: scale(0.9); }
+.stepper__btn:disabled { color: var(--line-strong); cursor: default; }
+.stepper__btn:focus-visible { border-radius: 50%; outline-offset: -2px; }
+.stepper__qty {
+  min-width: 2ch;
+  text-align: center;
+  font-size: var(--fs-lg);
+  color: var(--ink-2);
+}
+.dish[data-selected] .stepper { border-color: var(--accent); }
+.dish[data-selected] .stepper__qty { color: var(--accent); }
+.dish[data-selected] .stepper__btn[data-step="1"]:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.board[data-disabled] .dish__name,
+.board[data-disabled] .dish__price { color: var(--closed); }
+.board[data-disabled] .stepper { border-color: var(--line); }
+
+/* ---------- ฟอร์มชื่อ / หมายเหตุ ---------- */
+.order-form {
+  display: grid;
+  gap: var(--s-4);
+}
+
+/* ---------- แถบยอด (ติดล่างจอ) ---------- */
+.orderbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: var(--surface);
+  border-top: 1.5px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.orderbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s-3) var(--s-4);
+}
+.orderbar__sum {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.orderbar__label { font-size: var(--fs-sm); color: var(--ink-2); }
+.orderbar__total .num { font-size: var(--fs-2xl); }
+.orderbar__unit { font-size: var(--fs-sm); color: var(--ink-2); }
+.orderbar__btn { flex-shrink: 0; min-width: 9.5rem; }
+
+/* ---------- ข้อความแจ้ง ---------- */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-row);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.notice__icon { padding-top: 1px; }
+.notice--error { background: var(--accent-soft); color: var(--ink); }
+.notice--error .notice__icon { color: var(--accent); }
+.notice--closed { background: var(--closed-soft); color: var(--ink); }
+.notice--closed .notice__icon { color: var(--closed); }
+.notice--info { background: var(--surface-2); color: var(--ink); }
+.notice--info .notice__icon { color: var(--ink-2); }
+
+/* ---------- สถานะว่าง ---------- */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--s-8) var(--s-5);
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--r-panel);
+}
+.empty__art {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.empty__title { margin-top: var(--s-4); font-size: var(--fs-xl); }
+.empty__body { margin-top: var(--s-1); max-width: 34ch; color: var(--ink-2); }
+.empty__action { margin-top: var(--s-5); }
+
+/* ---------- สั่งแล้ว ---------- */
+.done {
+  padding: var(--s-5);
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--r-panel);
+}
+.done__head { display: flex; align-items: center; gap: var(--s-3); }
+.done__badge {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.done__title { font-size: var(--fs-xl); line-height: 1.2; }
+.done__meta { font-size: var(--fs-sm); color: var(--ink-2); overflow-wrap: anywhere; }
+.done__lines { margin-top: var(--s-4); }
+.done__lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.done__note {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+.done__note svg { margin-top: 3px; }
+.done__total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: var(--s-3);
+  font-weight: 600;
+}
+.done__total .num { font-size: var(--fs-2xl); }
+.done__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+
+/* ---------- สรุปยอด (อ่านตอนถือโทรศัพท์คุยกับร้าน) ---------- */
+.tally {
+  padding: var(--s-5);
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-panel);
+}
+.tally__totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+  padding-bottom: var(--s-4);
+  border-bottom: 1.5px solid var(--line);
+}
+.tally__grand { font-size: var(--fs-2xl); }
+.tally__unit, .tally__count { color: var(--ink-2); }
+.tally__heading {
+  margin-top: var(--s-5);
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.tally__items { margin-top: var(--s-2); }
+.tally__item {
+  display: grid;
+  grid-template-columns: 3.25rem 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.tally__qty {
+  font-size: 2.5rem;
+  line-height: 1;
+  color: var(--accent);
+  text-align: right;
+}
+.tally__name { font-size: var(--fs-lg); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.tally__amount { color: var(--ink-2); white-space: nowrap; font-size: var(--fs-sm); }
+.tally__people { margin-top: var(--s-2); }
+.person { padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.person:last-child { border-bottom: 0; }
+.person__head { display: flex; justify-content: space-between; gap: var(--s-3); font-weight: 600; }
+.person__name { overflow-wrap: anywhere; }
+.person__total { white-space: nowrap; }
+.person__lines { color: var(--ink-2); font-size: var(--fs-sm); }
+.person__note { display: flex; gap: 6px; color: var(--ink-2); font-size: var(--fs-sm); }
+.person__note svg { margin-top: 4px; }
+.tally__none { margin-top: var(--s-2); color: var(--ink-2); }
+
+/* ---------- ปุ่มทั้งหมด (kit) ---------- */
+.kit__buttons { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4); }
+
+@media (min-width: 720px) {
+  .page { padding-top: var(--s-8); }
+}
+
+/* จอแคบ: ราคาอยู่ใต้ชื่อ ให้ชื่อเมนูมีที่พอ (เส้นจุดไข่ปลาโชว์เฉพาะจอกว้าง) */
+@media (max-width: 479px) {
+  .dish__info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+  .dish__leader { display: none; }
+  .dish__price { font-size: var(--fs-md); }
+}
