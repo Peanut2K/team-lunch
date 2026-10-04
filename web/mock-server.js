@@ -1,6 +1,6 @@
 /* ข้าวเที่ยงทีม — server จำลองในหน้าเว็บ (Decision log D5)
  *
- * ทำตัวเหมือน HTTP server ตาม API contract ใน Linear:
+ * ทำตัวเหมือน HTTP server ตาม API contract v2 ใน Linear (Decision log D8–D12):
  *   handle(method, path, bodyText) -> Promise<{ status, body }>
  * api.js เป็นคนเดียวที่เรียกไฟล์นี้ — หน้าเว็บไม่เรียกตรง
  *
@@ -328,6 +328,18 @@
     return ok(200, orderView(o));
   }
 
+  // GET /api/rounds/:id/orders/:name (D12) — ดูได้ทั้งตอนเปิดและปิดรับ
+  // 404 NOT_FOUND เมื่อไม่มีรอบ หรือชื่อนี้ยังไม่ได้สั่ง (contract ไม่มี VALIDATION ของ endpoint นี้)
+  function getOrder(roundId, name) {
+    var r = findRound(roundId);
+    if (!r) return roundNotFound();
+    var key = nameKey(name);
+    for (var i = 0; i < r.orders.length; i++) {
+      if (key && r.orders[i].key === key) return ok(200, orderView(r.orders[i]));
+    }
+    return fail(404, 'NOT_FOUND', 'ชื่อนี้ยังไม่ได้สั่งในรอบนี้');
+  }
+
   // DELETE /api/rounds/:id/orders/:name
   function deleteOrder(roundId, name) {
     // D9: NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path) → ROUND_CLOSED → NOT_FOUND (ชื่อนี้ไม่มี order)
@@ -393,8 +405,9 @@
     if ((m = p.match(/^\/api\/rounds\/([^/]+)\/orders$/)) && method === 'PUT') {
       return putOrder(safeDecode(m[1]), body);
     }
-    if ((m = p.match(/^\/api\/rounds\/([^/]+)\/orders\/([^/]+)$/)) && method === 'DELETE') {
-      return deleteOrder(safeDecode(m[1]), safeDecode(m[2]));
+    if ((m = p.match(/^\/api\/rounds\/([^/]+)\/orders\/([^/]+)$/))) {
+      if (method === 'GET') return getOrder(safeDecode(m[1]), safeDecode(m[2]));
+      if (method === 'DELETE') return deleteOrder(safeDecode(m[1]), safeDecode(m[2]));
     }
     if ((m = p.match(/^\/api\/rounds\/([^/]+)\/summary$/)) && method === 'GET') {
       return getSummary(safeDecode(m[1]));

@@ -7,18 +7,21 @@
  * เลือกโหมด: ?api=mock | ?api=real  ถ้าไม่ระบุ → เปิดจากไฟล์ (file:) ใช้ mock, เสิร์ฟผ่าน http ใช้ real
  *
  * ผลลัพธ์: resolve เป็น body ที่ API ตอบ (204 → null)
- * ผิดพลาด: reject เป็น TL.ApiError { status, code, message } — message มาจาก API ตรงๆ ให้แสดงผู้ใช้ได้เลย
+ * ผิดพลาด: reject เป็น TL.ApiError { status, code, message, field? } — message มาจาก API ตรงๆ ให้แสดงผู้ใช้ได้เลย
+ *         field มีเฉพาะ VALIDATION (D11) ใช้ชี้ช่องที่ผิด
  */
 (function () {
   'use strict';
 
   var TL = (window.TL = window.TL || {});
 
-  function ApiError(status, code, message) {
+  // field: มีเฉพาะ VALIDATION (D11) — path ของ field ที่ผิด เช่น 'name', 'items[2].price' หรือ null = ทั้งก้อน
+  function ApiError(status, code, message, field) {
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.message = message;
+    if (field !== undefined) this.field = field;
   }
   ApiError.prototype = Object.create(Error.prototype);
   ApiError.prototype.constructor = ApiError;
@@ -40,7 +43,7 @@
     if (status >= 200 && status < 300) return status === 204 ? null : body;
     var err = body && body.error;
     if (err && typeof err.message === 'string') {
-      throw new ApiError(status, err.code || 'UNKNOWN', err.message);
+      throw new ApiError(status, err.code || 'UNKNOWN', err.message, err.field);
     }
     throw new ApiError(status, 'HTTP_' + status, 'เกิดข้อผิดพลาดจาก server (' + status + ') ลองใหม่อีกครั้ง');
   }
@@ -86,6 +89,10 @@
     getToday: function () { return request('GET', '/api/rounds/today'); },
     /** PUT /api/rounds/:id/orders — body: { name, lines: [{ itemId, qty }], note? } → Order */
     putOrder: function (roundId, body) { return request('PUT', '/api/rounds/' + enc(roundId) + '/orders', body); },
+    /** GET /api/rounds/:id/orders/:name → Order (404 NOT_FOUND = ยังไม่ได้สั่ง) — D12 */
+    getOrder: function (roundId, name) {
+      return request('GET', '/api/rounds/' + enc(roundId) + '/orders/' + enc(name));
+    },
     /** DELETE /api/rounds/:id/orders/:name → null */
     deleteOrder: function (roundId, name) {
       return request('DELETE', '/api/rounds/' + enc(roundId) + '/orders/' + enc(name));
