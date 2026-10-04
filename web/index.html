@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fbf4e4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a130f" media="(prefers-color-scheme: dark)">
+  <title>ข้าวเที่ยงทีม</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    /* ?theme=light|dark บังคับธีม (ไว้ให้ QA ถ่าย screenshot) — ปกติตามเครื่อง */
+    (function () {
+      var t = new URLSearchParams(location.search).get('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">ข้ามไปเนื้อหา</a>
+  <main id="main" class="page" tabindex="-1">
+    <h1>ข้าวเที่ยงทีม</h1>
+  </main>
+</body>
+</html>

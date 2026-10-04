@@ -1,0 +1,286 @@
+/* ข้าวเที่ยงทีม — base styles
+ * Design brief: อบอุ่น น่ากิน แต่ไม่วุ่นวาย · มือถือมาก่อน · เวลาปิดรับเด่นที่สุด
+ * โทน: พื้นครีมข้าวสวย + accent สีเดียว "ส้มพริก" · dark = น้ำตาลซีอิ๊วเข้ม
+ */
+
+/* ---------- tokens ---------- */
+:root {
+  color-scheme: light;
+
+  /* สี (light) */
+  --bg: #fbf4e4;          /* ครีมข้าวสวย */
+  --surface: #fffbf3;     /* แผ่นกระดานเมนู */
+  --surface-2: #f4ead5;   /* พื้นรอง / แถวที่เลือก */
+  --ink: #2a1d14;         /* น้ำตาลซีอิ๊ว */
+  --ink-2: #6e5c4c;       /* ข้อความรอง */
+  --line: #e6d8bd;        /* เส้นแบ่ง */
+  --line-strong: #cdb894;
+
+  --accent: #c2370f;      /* ส้มพริก — ใช้กับปุ่มหลักและตัวเลขสำคัญ */
+  --accent-hover: #a82e0b;
+  --accent-ink: #fff8f0;  /* ตัวอักษรบน accent */
+  --accent-soft: #fbe2d4;
+
+  --warn: #8f5300;        /* ขมิ้น — เหลือไม่ถึง 10 นาที (เตือนเบาๆ) */
+  --warn-soft: #fbe8bd;
+
+  --closed: #75695e;      /* เทาอุ่น — ปิดรับแล้ว */
+  --closed-soft: #ebe3d8;
+
+  --focus: #1f5fbf;       /* วงแหวน focus ต้องเห็นชัดทั้งบนครีมและบนส้ม */
+
+  /* ตัวอักษร */
+  --font: "IBM Plex Sans Thai", "Noto Sans Thai", "Sukhumvit Set", "Leelawadee UI", system-ui, sans-serif;
+  --fs-xs: 0.8125rem;   /* 13 */
+  --fs-sm: 0.875rem;    /* 14 */
+  --fs-md: 1rem;        /* 16 */
+  --fs-lg: 1.125rem;    /* 18 */
+  --fs-xl: 1.375rem;    /* 22 */
+  --fs-2xl: 1.75rem;    /* 28 */
+  --fs-hero: clamp(3.25rem, 15vw, 4.5rem); /* เวลาปิดรับ */
+
+  /* ระยะ (ฐาน 4px) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+
+  /* มุมโค้ง — ใหญ่สำหรับแผ่น เล็กสำหรับแถว กลมสำหรับปุ่ม */
+  --r-panel: 20px;
+  --r-row: 12px;
+  --r-field: 12px;
+  --r-pill: 999px;
+
+  --tap: 44px;          /* ปุ่มกดบนมือถือสูงอย่างน้อย 44px */
+  --tap-lg: 52px;
+  --page-max: 560px;
+
+  --dur: 160ms;         /* animation ไม่เกิน 200ms */
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* dark ตามเครื่อง (เว้นแต่บังคับ light ด้วย ?theme=light) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1a130f;
+    --surface: #241b15;
+    --surface-2: #2f241c;
+    --ink: #f6ecdf;
+    --ink-2: #bba996;
+    --line: #3b2f25;
+    --line-strong: #5a4838;
+    --accent: #ff7d4f;
+    --accent-hover: #ff936b;
+    --accent-ink: #1a130f;
+    --accent-soft: #42231a;
+    --warn: #f3bb5e;
+    --warn-soft: #3a2b12;
+    --closed: #b1a497;
+    --closed-soft: #2d2621;
+    --focus: #8ab4ff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1a130f;
+  --surface: #241b15;
+  --surface-2: #2f241c;
+  --ink: #f6ecdf;
+  --ink-2: #bba996;
+  --line: #3b2f25;
+  --line-strong: #5a4838;
+  --accent: #ff7d4f;
+  --accent-hover: #ff936b;
+  --accent-ink: #1a130f;
+  --accent-soft: #42231a;
+  --warn: #f3bb5e;
+  --warn-soft: #3a2b12;
+  --closed: #b1a497;
+  --closed-soft: #2d2621;
+  --focus: #8ab4ff;
+}
+
+/* ---------- base ---------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  overflow-x: hidden; /* F8: ไม่มี scroll แนวนอน */
+}
+
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { line-height: 1.3; font-weight: 600; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+button, input, textarea, select { font: inherit; color: inherit; }
+svg { display: block; flex-shrink: 0; }
+
+/* ตัวเลขราคาและเวลา: หนา อ่านง่าย ความกว้างเท่ากัน */
+.num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* focus ชัด — ใช้ :focus-visible เพื่อไม่ให้วงแหวนโผล่ตอนแตะนิ้ว */
+:focus { outline: none; }
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--s-4);
+  top: -100px;
+  z-index: 50;
+  padding: var(--s-2) var(--s-4);
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: var(--r-pill);
+  text-decoration: none;
+}
+.skip-link:focus-visible { top: var(--s-2); }
+
+/* ---------- layout ---------- */
+.page {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s-4) var(--s-4) calc(var(--s-10) + 96px);
+}
+
+.stack > * + * { margin-top: var(--s-4); }
+.stack-lg > * + * { margin-top: var(--s-8); }
+
+/* ---------- ปุ่ม ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: var(--tap);
+  padding: 0 var(--s-5);
+  border: 1.5px solid transparent;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { cursor: not-allowed; opacity: 0.45; }
+.btn svg { width: 20px; height: 20px; }
+
+.btn--primary {
+  min-height: var(--tap-lg);
+  padding: 0 var(--s-6);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--fs-lg);
+}
+.btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+.btn--secondary {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.btn--secondary:hover:not(:disabled) { border-color: var(--ink-2); }
+
+.btn--quiet {
+  background: transparent;
+  color: var(--ink-2);
+  padding: 0 var(--s-3);
+}
+.btn--quiet:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
+
+.btn--block { width: 100%; }
+
+/* ---------- ช่องกรอก ---------- */
+.field { display: block; }
+.field__label {
+  display: block;
+  margin-bottom: var(--s-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+.field__hint {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.field__input {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px var(--s-4);
+  background: var(--surface);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-field);
+  font-size: var(--fs-md); /* 16px กัน iOS zoom */
+  line-height: 1.4;
+  transition: border-color var(--dur) var(--ease);
+}
+.field__input::placeholder { color: var(--ink-2); opacity: 0.8; }
+.field__input:hover { border-color: var(--ink-2); }
+.field__input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--ink);
+  border-radius: var(--r-field);
+}
+.field__input[aria-invalid="true"] { border-color: var(--accent); }
+textarea.field__input { min-height: 72px; resize: vertical; }
+.field__error {
+  display: flex;
+  gap: var(--s-1);
+  align-items: flex-start;
+  margin-top: var(--s-1);
+  font-size: var(--fs-sm);
+  color: var(--accent);
+}
+.field__error svg { width: 16px; height: 16px; margin-top: 3px; }
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
