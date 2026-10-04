@@ -82,6 +82,19 @@ describe('POST /api/rounds', () => {
     assert.deepEqual(res.body.items.map((i) => i.price), [1, 10000]);
   });
 
+  test('D8 ชื่อร้าน/ชื่อเมนูยาว 60 code point พอดีผ่าน (นับ code point ไม่ใช่ UTF-16, ไม่นับช่องว่างหัวท้าย)', async () => {
+    const thai60 = 'ข้า'.repeat(20); // 60 code point (ข + ้ + า)
+    const emoji60 = '🍚'.repeat(60); // 60 code point แต่ String#length = 120
+    assert.equal(emoji60.length, 120);
+    const res = await srv.request('POST', '/api/rounds', validBody({
+      restaurant: `   ${thai60}   `,
+      items: [{ name: emoji60, price: 50 }, { name: 'ก', price: 10 }],
+    }));
+    assert.equal(res.status, 201);
+    assert.equal(res.body.restaurant, thai60);
+    assert.equal(res.body.items[0].name, emoji60);
+  });
+
   test('QA: ราคาเกิน safe integer → 400 แล้ว GET today และเปิดรอบปกติยังใช้ได้ (DB ไม่เสีย)', async () => {
     const bad = await srv.request('POST', '/api/rounds',
       validBody({ items: [{ name: 'ข้าว', price: 9007199254740992 }] }));
@@ -104,6 +117,9 @@ describe('POST /api/rounds', () => {
       ['restaurant ว่าง', validBody({ restaurant: '' }), 'restaurant'],
       ['restaurant มีแต่ช่องว่าง', validBody({ restaurant: '   ' }), 'restaurant'],
       ['restaurant ไม่ใช่ string', validBody({ restaurant: 123 }), 'restaurant'],
+      // D8 · restaurant 1–60 code point หลังตัดช่องว่าง
+      ['restaurant 61 ตัวอักษร', validBody({ restaurant: 'ก'.repeat(61) }), 'restaurant'],
+      ['restaurant 61 code point (อีโมจิ)', validBody({ restaurant: '🍚'.repeat(61) }), 'restaurant'],
       ['ไม่มี cutoffAt', validBody({ cutoffAt: undefined }), 'cutoffAt'],
       ['cutoffAt ไม่ใช่ ISO', validBody({ cutoffAt: '11:00' }), 'cutoffAt'],
       ['cutoffAt ไม่มี offset', validBody({ cutoffAt: '2026-10-05T11:00:00' }), 'cutoffAt'],
@@ -118,6 +134,10 @@ describe('POST /api/rounds', () => {
       ['item ไม่ใช่ object', validBody({ items: ['ข้าวมันไก่'] }), 'items[0]'],
       ['item ไม่มีชื่อ', validBody({ items: [{ price: 50 }] }), 'items[0].name'],
       ['item ชื่อมีแต่ช่องว่าง', validBody({ items: [{ name: '  ', price: 50 }] }), 'items[0].name'],
+      // D8 · ชื่อเมนู 1–60 code point หลังตัดช่องว่าง
+      ['ชื่อเมนู 61 ตัวอักษร', validBody({ items: [{ name: 'ข้า'.repeat(20) + 'ว', price: 50 }] }), 'items[0].name'],
+      ['ชื่อเมนูรายการที่ 2 ยาวเกิน', validBody({ items: [{ name: 'a', price: 1 }, { name: 'x'.repeat(61), price: 1 }] }), 'items[1].name'],
+      ['ชื่อเมนูไม่ใช่ string', validBody({ items: [{ name: 5, price: 50 }] }), 'items[0].name'],
       ['ราคา 0', validBody({ items: [{ name: 'a', price: 0 }] }), 'items[0].price'],
       ['ราคาติดลบ', validBody({ items: [{ name: 'a', price: -5 }] }), 'items[0].price'],
       ['ราคาทศนิยม', validBody({ items: [{ name: 'a', price: 50.5 }] }), 'items[0].price'],

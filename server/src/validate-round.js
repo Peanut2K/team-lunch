@@ -2,13 +2,16 @@
 
 const { parseISOWithOffset } = require('./clock');
 const { validation } = require('./errors');
+const { isTextInRange } = require('./text');
 
 const MAX_ITEMS = 30;
 const MIN_PRICE = 1;
+const MAX_NAME = 60; // D8 — restaurant และชื่อเมนู 1–60 code point หลังตัดช่องว่าง
 const MAX_PRICE = 10000; // D8 — กันค่าที่ใหญ่เกิน safe integer ทำข้อมูลใน SQLite อ่านกลับไม่ได้
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nonEmptyString = (v) => typeof v === 'string' && v.trim().length > 0;
+const validName = (v) => isTextInRange(v, 1, MAX_NAME);
 
 /**
  * ตรวจ body ของ POST /api/rounds ตาม API contract — throw ApiError(400 VALIDATION) ถ้าผิด
@@ -21,6 +24,9 @@ function validateNewRound(body, now) {
 
   if (!nonEmptyString(body.restaurant)) {
     throw validation('restaurant', 'กรุณาใส่ชื่อร้าน');
+  }
+  if (!validName(body.restaurant)) {
+    throw validation('restaurant', `ชื่อร้านยาวได้ไม่เกิน ${MAX_NAME} ตัวอักษร`);
   }
 
   if (body.cutoffAt === undefined || body.cutoffAt === null || body.cutoffAt === '') {
@@ -50,6 +56,9 @@ function validateNewRound(body, now) {
     if (!nonEmptyString(it.name)) {
       throw validation(`items[${idx}].name`, `กรุณาใส่ชื่อเมนูรายการที่ ${n}`);
     }
+    if (!validName(it.name)) {
+      throw validation(`items[${idx}].name`, `ชื่อเมนูรายการที่ ${n} ยาวได้ไม่เกิน ${MAX_NAME} ตัวอักษร`);
+    }
     if (typeof it.price !== 'number' || !Number.isInteger(it.price)
         || it.price < MIN_PRICE || it.price > MAX_PRICE) {
       throw validation(`items[${idx}].price`, `ราคาเมนู "${it.name.trim()}" ต้องเป็นจำนวนเต็ม 1–10,000 บาท`);
@@ -60,4 +69,4 @@ function validateNewRound(body, now) {
   return { restaurant: body.restaurant.trim(), cutoffAt, items };
 }
 
-module.exports = { validateNewRound, MAX_ITEMS, MIN_PRICE, MAX_PRICE };
+module.exports = { validateNewRound, MAX_ITEMS, MAX_NAME, MIN_PRICE, MAX_PRICE };
