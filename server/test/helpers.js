@@ -26,7 +26,12 @@ async function startServer(opts = {}) {
     return { status: res.status, body: json, text };
   }
 
+  const db = app.locals.db;
   return {
+    app,
+    db,
+    /** จำนวนรอบที่อยู่ใน DB (ใช้ตรวจว่าไม่ได้สร้างรอบ) */
+    roundCount: () => db.prepare('SELECT COUNT(*) AS n FROM rounds').get().n,
     base,
     request,
     close: () => new Promise((resolve) => server.close(resolve)),

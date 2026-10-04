@@ -1,0 +1,160 @@
+'use strict';
+
+const { describe, test, beforeEach, afterEach } = require('node:test');
+const assert = require('node:assert/strict');
+const { startServer } = require('./helpers');
+const { createFakeClock } = require('../src/clock');
+
+// 5 ต.ค. 2026 09:00 เวลาไทย
+const NOW = '2026-10-05T09:00:00+07:00';
+
+const validBody = (over = {}) => ({
+  restaurant: 'ข้าวมันไก่ป้าแดง',
+  cutoffAt: '2026-10-05T11:00:00+07:00',
+  items: [{ name: 'ข้าวมันไก่ต้ม', price: 50 }, { name: 'ข้าวมันไก่ทอด', price: 55 }],
+  ...over,
+});
+
+function assertValidationError(res, label) {
+  assert.equal(res.status, 400, `${label}: status`);
+  assert.equal(res.body.error.code, 'VALIDATION', `${label}: code`);
+  assert.ok(typeof res.body.error.message === 'string' && res.body.error.message.length > 0,
+    `${label}: ต้องมี message`);
+}
+
+describe('POST /api/rounds', () => {
+  let srv;
+  let clock;
+  beforeEach(async () => {
+    clock = createFakeClock(NOW);
+    srv = await startServer({ now: clock.now });
+  });
+  afterEach(() => srv.close());
+
+  test('201 คืน Round ครบตาม contract (status open, serverNow, item id)', async () => {
+    const res = await srv.request('POST', '/api/rounds', validBody());
+    assert.equal(res.status, 201);
+    assert.deepEqual(res.body, {
+      id: 'r_20261005',
+      date: '2026-10-05',
+      restaurant: 'ข้าวมันไก่ป้าแดง',
+      cutoffAt: '2026-10-05T11:00:00+07:00',
+      status: 'open',
+      serverNow: '2026-10-05T09:00:00+07:00',
+      items: [
+        { id: 'i1', name: 'ข้าวมันไก่ต้ม', price: 50 },
+        { id: 'i2', name: 'ข้าวมันไก่ทอด', price: 55 },
+      ],
+    });
+  });
+
+  test('cutoffAt ที่ส่งเป็น offset อื่นถูกแปลงเป็น +07:00 · ตัดช่องว่างชื่อร้าน/เมนู', async () => {
+    const res = await srv.request('POST', '/api/rounds', validBody({
+      restaurant: '  ป้าแดง  ',
+      cutoffAt: '2026-10-05T04:00:00Z',
+      items: [{ name: '  ข้าวมันไก่ต้ม ', price: 50 }],
+    }));
+    assert.equal(res.status, 201);
+    assert.equal(res.body.restaurant, 'ป้าแดง');
+    assert.equal(res.body.cutoffAt, '2026-10-05T11:00:00+07:00');
+    assert.equal(res.body.items[0].name, 'ข้าวมันไก่ต้ม');
+  });
+
+  test('เมนู 1 รายการ และ 30 รายการ ผ่าน', async () => {
+    const one = await srv.request('POST', '/api/rounds', validBody({ items: [{ name: 'a', price: 1 }] }));
+    assert.equal(one.status, 201);
+    clock.set('2026-10-06T09:00:00+07:00');
+    const thirty = Array.from({ length: 30 }, (_, i) => ({ name: `เมนู ${i + 1}`, price: 40 + i }));
+    const res = await srv.request('POST', '/api/rounds',
+      validBody({ cutoffAt: '2026-10-06T11:00:00+07:00', items: thirty }));
+    assert.equal(res.status, 201);
+    assert.equal(res.body.items.length, 30);
+    assert.equal(res.body.items[29].id, 'i30');
+  });
+
+  describe('400 VALIDATION', () => {
+    const cases = [
+      ['body เป็น array', []],
+      ['ไม่มี restaurant', validBody({ restaurant: undefined })],
+      ['restaurant ว่าง', validBody({ restaurant: '' })],
+      ['restaurant มีแต่ช่องว่าง', validBody({ restaurant: '   ' })],
+      ['restaurant ไม่ใช่ string', validBody({ restaurant: 123 })],
+      ['ไม่มี cutoffAt', validBody({ cutoffAt: undefined })],
+      ['cutoffAt ไม่ใช่ ISO', validBody({ cutoffAt: '11:00' })],
+      ['cutoffAt ไม่มี offset', validBody({ cutoffAt: '2026-10-05T11:00:00' })],
+      ['cutoffAt เป็นตัวเลข', validBody({ cutoffAt: 1759636800000 })],
+      ['cutoffAt วันที่ไม่มีจริง', validBody({ cutoffAt: '2026-02-31T11:00:00+07:00' })],
+      ['cutoffAt ในอดีต', validBody({ cutoffAt: '2026-10-05T08:59:59+07:00' })],
+      ['cutoffAt เท่ากับตอนนี้พอดี', validBody({ cutoffAt: NOW })],
+      ['ไม่มี items', validBody({ items: undefined })],
+      ['items ไม่ใช่ array', validBody({ items: { name: 'a', price: 1 } })],
+      ['items ว่าง (0 รายการ)', validBody({ items: [] })],
+      ['items 31 รายการ', validBody({ items: Array.from({ length: 31 }, (_, i) => ({ name: `m${i}`, price: 10 })) })],
+      ['item ไม่ใช่ object', validBody({ items: ['ข้าวมันไก่'] })],
+      ['item ไม่มีชื่อ', validBody({ items: [{ price: 50 }] })],
+      ['item ชื่อมีแต่ช่องว่าง', validBody({ items: [{ name: '  ', price: 50 }] })],
+      ['ราคา 0', validBody({ items: [{ name: 'a', price: 0 }] })],
+      ['ราคาติดลบ', validBody({ items: [{ name: 'a', price: -5 }] })],
+      ['ราคาทศนิยม', validBody({ items: [{ name: 'a', price: 50.5 }] })],
+      ['ราคาเป็น string', validBody({ items: [{ name: 'a', price: '50' }] })],
+      ['ไม่มีราคา', validBody({ items: [{ name: 'a' }] })],
+      ['รายการที่ 2 ผิด', validBody({ items: [{ name: 'a', price: 10 }, { name: 'b', price: 0 }] })],
+    ];
+    for (const [label, body] of cases) {
+      test(label, async () => {
+        const res = await srv.request('POST', '/api/rounds', body);
+        assertValidationError(res, label);
+        assert.equal(srv.roundCount(), 0, `${label}: ไม่ควรสร้างรอบ`);
+      });
+    }
+
+    test('body ไม่ใช่ JSON', async () => {
+      assertValidationError(await srv.request('POST', '/api/rounds', 'not json'), 'not json');
+    });
+
+    test('message เป็นภาษาไทยที่แสดงได้ตรงๆ', async () => {
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-05T08:00:00+07:00' }));
+      assert.equal(res.body.error.message, 'เวลาปิดรับต้องอยู่ในอนาคต');
+    });
+  });
+
+  describe('409 ROUND_EXISTS', () => {
+    test('เปิดรอบซ้ำในวันเดียวกัน → 409 และรอบเดิมไม่เปลี่ยน', async () => {
+      assert.equal((await srv.request('POST', '/api/rounds', validBody())).status, 201);
+      clock.advance(60 * 60 * 1000); // 10:00 วันเดียวกัน
+      const res = await srv.request('POST', '/api/rounds',
+        validBody({ restaurant: 'ร้านอื่น', items: [{ name: 'x', price: 10 }] }));
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'ROUND_EXISTS');
+      assert.ok(res.body.error.message.length > 0);
+      assert.equal(srv.roundCount(), 1);
+      const row = srv.db.prepare('SELECT restaurant FROM rounds').get();
+      assert.equal(row.restaurant, 'ข้าวมันไก่ป้าแดง');
+    });
+
+    test('ซ้ำได้ 409 แม้หลังปิดรับของวันนั้นแล้ว', async () => {
+      await srv.request('POST', '/api/rounds', validBody());
+      clock.set('2026-10-05T12:00:00+07:00');
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-05T13:00:00+07:00' }));
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error.code, 'ROUND_EXISTS');
+    });
+
+    test('ยิงพร้อมกัน 5 request → สำเร็จ 1 ที่เหลือ 409', async () => {
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () => srv.request('POST', '/api/rounds', validBody())));
+      const statuses = results.map((r) => r.status).sort();
+      assert.deepEqual(statuses, [201, 409, 409, 409, 409]);
+      assert.equal(srv.roundCount(), 1);
+    });
+
+    test('วันถัดไป (ตามเวลาไทย) เปิดรอบใหม่ได้', async () => {
+      await srv.request('POST', '/api/rounds', validBody());
+      clock.set('2026-10-06T00:00:00+07:00'); // = 2026-10-05T17:00Z ยังเป็นวันที่ 5 ใน UTC
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-06T11:00:00+07:00' }));
+      assert.equal(res.status, 201);
+      assert.equal(res.body.id, 'r_20261006');
+      assert.equal(res.body.date, '2026-10-06');
+    });
+  });
+});

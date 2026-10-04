@@ -4,6 +4,9 @@ const path = require('node:path');
 const express = require('express');
 const { systemClock } = require('./clock');
 const { apiNotFoundHandler, errorHandler } = require('./errors');
+const { openDb } = require('./db');
+const { createRoundsRepo } = require('./rounds-repo');
+const { roundsRouter } = require('./routes/rounds');
 
 /**
  * สร้าง Express app
@@ -13,13 +16,17 @@ const { apiNotFoundHandler, errorHandler } = require('./errors');
  */
 function createApp(opts = {}) {
   const now = opts.now || systemClock;
+  const db = openDb(opts.dbPath || ':memory:');
+  const repo = createRoundsRepo(db);
 
   const app = express();
   app.disable('x-powered-by');
   app.locals.now = now;
+  app.locals.db = db;
 
   const api = express.Router();
   api.use(express.json());
+  api.use('/rounds', roundsRouter({ repo, now }));
   api.use(apiNotFoundHandler);
   app.use('/api', api);
 
