@@ -75,6 +75,27 @@ describe('POST /api/rounds', () => {
     assert.equal(res.body.items[29].id, 'i30');
   });
 
+  test('D8 ราคาขอบ 1 และ 10,000 ผ่าน', async () => {
+    const res = await srv.request('POST', '/api/rounds',
+      validBody({ items: [{ name: 'a', price: 1 }, { name: 'b', price: 10000 }] }));
+    assert.equal(res.status, 201);
+    assert.deepEqual(res.body.items.map((i) => i.price), [1, 10000]);
+  });
+
+  test('QA: ราคาเกิน safe integer → 400 แล้ว GET today และเปิดรอบปกติยังใช้ได้ (DB ไม่เสีย)', async () => {
+    const bad = await srv.request('POST', '/api/rounds',
+      validBody({ items: [{ name: 'ข้าว', price: 9007199254740992 }] }));
+    assertValidationError(bad, 'price 2^53', 'items[0].price');
+    assert.equal(bad.body.error.message, 'ราคาเมนู "ข้าว" ต้องเป็นจำนวนเต็ม 1–10,000 บาท');
+    assert.equal(srv.roundCount(), 0);
+    const today = await srv.request('GET', '/api/rounds/today');
+    assert.equal(today.status, 404);
+    assert.equal(today.body.error.code, 'NO_ROUND');
+    const ok = await srv.request('POST', '/api/rounds', validBody());
+    assert.equal(ok.status, 201);
+    assert.equal((await srv.request('GET', '/api/rounds/today')).status, 200);
+  });
+
   describe('400 VALIDATION', () => {
     // [label, body, field ที่ต้องได้ (D11)]
     const cases = [
@@ -102,6 +123,11 @@ describe('POST /api/rounds', () => {
       ['ราคาทศนิยม', validBody({ items: [{ name: 'a', price: 50.5 }] }), 'items[0].price'],
       ['ราคาเป็น string', validBody({ items: [{ name: 'a', price: '50' }] }), 'items[0].price'],
       ['ไม่มีราคา', validBody({ items: [{ name: 'a' }] }), 'items[0].price'],
+      // D8 · ราคา 1–10,000 (QA: ราคาเกิน safe integer เคยทำ DB เสีย)
+      ['ราคา 10,001', validBody({ items: [{ name: 'a', price: 10001 }] }), 'items[0].price'],
+      ['ราคาเกิน safe integer (2^53)', validBody({ items: [{ name: 'a', price: 2 ** 53 }] }), 'items[0].price'],
+      ['ราคา 1e20', validBody({ items: [{ name: 'a', price: 1e20 }] }), 'items[0].price'],
+      ['ราคา 1e308', validBody({ items: [{ name: 'a', price: 1e308 }] }), 'items[0].price'],
       ['รายการที่ 2 ผิด', validBody({ items: [{ name: 'a', price: 10 }, { name: 'b', price: 0 }] }), 'items[1].price'],
       ['รายการที่ 3 ผิด (ตัวอย่าง items[2].price ใน contract)',
         validBody({ items: [{ name: 'a', price: 10 }, { name: 'b', price: 20 }, { name: 'c', price: null }] }),

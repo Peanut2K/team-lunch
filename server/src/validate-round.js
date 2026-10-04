@@ -4,6 +4,8 @@ const { parseISOWithOffset } = require('./clock');
 const { validation } = require('./errors');
 
 const MAX_ITEMS = 30;
+const MIN_PRICE = 1;
+const MAX_PRICE = 10000; // D8 — กันค่าที่ใหญ่เกิน safe integer ทำข้อมูลใน SQLite อ่านกลับไม่ได้
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nonEmptyString = (v) => typeof v === 'string' && v.trim().length > 0;
@@ -48,8 +50,9 @@ function validateNewRound(body, now) {
     if (!nonEmptyString(it.name)) {
       throw validation(`items[${idx}].name`, `กรุณาใส่ชื่อเมนูรายการที่ ${n}`);
     }
-    if (typeof it.price !== 'number' || !Number.isInteger(it.price) || it.price <= 0) {
-      throw validation(`items[${idx}].price`, `ราคาเมนู "${it.name.trim()}" ต้องเป็นจำนวนเต็มบาทที่มากกว่า 0`);
+    if (typeof it.price !== 'number' || !Number.isInteger(it.price)
+        || it.price < MIN_PRICE || it.price > MAX_PRICE) {
+      throw validation(`items[${idx}].price`, `ราคาเมนู "${it.name.trim()}" ต้องเป็นจำนวนเต็ม 1–10,000 บาท`);
     }
     return { name: it.name.trim(), price: it.price };
   });
@@ -57,4 +60,4 @@ function validateNewRound(body, now) {
   return { restaurant: body.restaurant.trim(), cutoffAt, items };
 }
 
-module.exports = { validateNewRound, MAX_ITEMS };
+module.exports = { validateNewRound, MAX_ITEMS, MIN_PRICE, MAX_PRICE };
