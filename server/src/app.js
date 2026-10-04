@@ -3,7 +3,7 @@
 const path = require('node:path');
 const express = require('express');
 const { systemClock } = require('./clock');
-const { apiNotFoundHandler, errorHandler } = require('./errors');
+const { apiNotFoundHandler, errorHandler, validation } = require('./errors');
 const { openDb } = require('./db');
 const { createRoundsRepo } = require('./rounds-repo');
 const { roundsRouter } = require('./routes/rounds');
@@ -26,6 +26,13 @@ function createApp(opts = {}) {
 
   const api = express.Router();
   api.use(express.json());
+  // contract: รับส่ง JSON — body ที่มีเนื้อหาแต่ไม่ใช่ JSON ถือว่า body ทั้งก้อนผิด (D11: field null)
+  api.use((req, res, next) => {
+    if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.is('application/json') === false) {
+      return next(validation(null, 'รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)'));
+    }
+    return next();
+  });
   api.use('/rounds', roundsRouter({ repo, now }));
   api.use(apiNotFoundHandler);
   app.use('/api', api);

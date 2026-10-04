@@ -15,11 +15,14 @@ const validBody = (over = {}) => ({
   ...over,
 });
 
-function assertValidationError(res, label) {
+/** 400 VALIDATION รูปแบบ { error: { code, field, message } } (D11) — ถ้าส่ง field มาจะเทียบ field ด้วย */
+function assertValidationError(res, label, field) {
   assert.equal(res.status, 400, `${label}: status`);
   assert.equal(res.body.error.code, 'VALIDATION', `${label}: code`);
+  assert.deepEqual(Object.keys(res.body.error), ['code', 'field', 'message'], `${label}: keys`);
   assert.ok(typeof res.body.error.message === 'string' && res.body.error.message.length > 0,
     `${label}: ต้องมี message`);
+  if (field !== undefined) assert.equal(res.body.error.field, field, `${label}: field`);
 }
 
 describe('POST /api/rounds', () => {
@@ -73,43 +76,47 @@ describe('POST /api/rounds', () => {
   });
 
   describe('400 VALIDATION', () => {
+    // [label, body, field ที่ต้องได้ (D11)]
     const cases = [
-      ['body เป็น array', []],
-      ['ไม่มี restaurant', validBody({ restaurant: undefined })],
-      ['restaurant ว่าง', validBody({ restaurant: '' })],
-      ['restaurant มีแต่ช่องว่าง', validBody({ restaurant: '   ' })],
-      ['restaurant ไม่ใช่ string', validBody({ restaurant: 123 })],
-      ['ไม่มี cutoffAt', validBody({ cutoffAt: undefined })],
-      ['cutoffAt ไม่ใช่ ISO', validBody({ cutoffAt: '11:00' })],
-      ['cutoffAt ไม่มี offset', validBody({ cutoffAt: '2026-10-05T11:00:00' })],
-      ['cutoffAt เป็นตัวเลข', validBody({ cutoffAt: 1759636800000 })],
-      ['cutoffAt วันที่ไม่มีจริง', validBody({ cutoffAt: '2026-02-31T11:00:00+07:00' })],
-      ['cutoffAt ในอดีต', validBody({ cutoffAt: '2026-10-05T08:59:59+07:00' })],
-      ['cutoffAt เท่ากับตอนนี้พอดี', validBody({ cutoffAt: NOW })],
-      ['ไม่มี items', validBody({ items: undefined })],
-      ['items ไม่ใช่ array', validBody({ items: { name: 'a', price: 1 } })],
-      ['items ว่าง (0 รายการ)', validBody({ items: [] })],
-      ['items 31 รายการ', validBody({ items: Array.from({ length: 31 }, (_, i) => ({ name: `m${i}`, price: 10 })) })],
-      ['item ไม่ใช่ object', validBody({ items: ['ข้าวมันไก่'] })],
-      ['item ไม่มีชื่อ', validBody({ items: [{ price: 50 }] })],
-      ['item ชื่อมีแต่ช่องว่าง', validBody({ items: [{ name: '  ', price: 50 }] })],
-      ['ราคา 0', validBody({ items: [{ name: 'a', price: 0 }] })],
-      ['ราคาติดลบ', validBody({ items: [{ name: 'a', price: -5 }] })],
-      ['ราคาทศนิยม', validBody({ items: [{ name: 'a', price: 50.5 }] })],
-      ['ราคาเป็น string', validBody({ items: [{ name: 'a', price: '50' }] })],
-      ['ไม่มีราคา', validBody({ items: [{ name: 'a' }] })],
-      ['รายการที่ 2 ผิด', validBody({ items: [{ name: 'a', price: 10 }, { name: 'b', price: 0 }] })],
+      ['body เป็น array', [], null],
+      ['ไม่มี restaurant', validBody({ restaurant: undefined }), 'restaurant'],
+      ['restaurant ว่าง', validBody({ restaurant: '' }), 'restaurant'],
+      ['restaurant มีแต่ช่องว่าง', validBody({ restaurant: '   ' }), 'restaurant'],
+      ['restaurant ไม่ใช่ string', validBody({ restaurant: 123 }), 'restaurant'],
+      ['ไม่มี cutoffAt', validBody({ cutoffAt: undefined }), 'cutoffAt'],
+      ['cutoffAt ไม่ใช่ ISO', validBody({ cutoffAt: '11:00' }), 'cutoffAt'],
+      ['cutoffAt ไม่มี offset', validBody({ cutoffAt: '2026-10-05T11:00:00' }), 'cutoffAt'],
+      ['cutoffAt เป็นตัวเลข', validBody({ cutoffAt: 1759636800000 }), 'cutoffAt'],
+      ['cutoffAt วันที่ไม่มีจริง', validBody({ cutoffAt: '2026-02-31T11:00:00+07:00' }), 'cutoffAt'],
+      ['cutoffAt ในอดีต', validBody({ cutoffAt: '2026-10-05T08:59:59+07:00' }), 'cutoffAt'],
+      ['cutoffAt เท่ากับตอนนี้พอดี', validBody({ cutoffAt: NOW }), 'cutoffAt'],
+      ['ไม่มี items', validBody({ items: undefined }), 'items'],
+      ['items ไม่ใช่ array', validBody({ items: { name: 'a', price: 1 } }), 'items'],
+      ['items ว่าง (0 รายการ)', validBody({ items: [] }), 'items'],
+      ['items 31 รายการ', validBody({ items: Array.from({ length: 31 }, (_, i) => ({ name: `m${i}`, price: 10 })) }), 'items'],
+      ['item ไม่ใช่ object', validBody({ items: ['ข้าวมันไก่'] }), 'items[0]'],
+      ['item ไม่มีชื่อ', validBody({ items: [{ price: 50 }] }), 'items[0].name'],
+      ['item ชื่อมีแต่ช่องว่าง', validBody({ items: [{ name: '  ', price: 50 }] }), 'items[0].name'],
+      ['ราคา 0', validBody({ items: [{ name: 'a', price: 0 }] }), 'items[0].price'],
+      ['ราคาติดลบ', validBody({ items: [{ name: 'a', price: -5 }] }), 'items[0].price'],
+      ['ราคาทศนิยม', validBody({ items: [{ name: 'a', price: 50.5 }] }), 'items[0].price'],
+      ['ราคาเป็น string', validBody({ items: [{ name: 'a', price: '50' }] }), 'items[0].price'],
+      ['ไม่มีราคา', validBody({ items: [{ name: 'a' }] }), 'items[0].price'],
+      ['รายการที่ 2 ผิด', validBody({ items: [{ name: 'a', price: 10 }, { name: 'b', price: 0 }] }), 'items[1].price'],
+      ['รายการที่ 3 ผิด (ตัวอย่าง items[2].price ใน contract)',
+        validBody({ items: [{ name: 'a', price: 10 }, { name: 'b', price: 20 }, { name: 'c', price: null }] }),
+        'items[2].price'],
     ];
-    for (const [label, body] of cases) {
+    for (const [label, body, field] of cases) {
       test(label, async () => {
         const res = await srv.request('POST', '/api/rounds', body);
-        assertValidationError(res, label);
+        assertValidationError(res, label, field);
         assert.equal(srv.roundCount(), 0, `${label}: ไม่ควรสร้างรอบ`);
       });
     }
 
     test('body ไม่ใช่ JSON', async () => {
-      assertValidationError(await srv.request('POST', '/api/rounds', 'not json'), 'not json');
+      assertValidationError(await srv.request('POST', '/api/rounds', 'not json'), 'not json', null);
     });
 
     test('message เป็นภาษาไทยที่แสดงได้ตรงๆ', async () => {
@@ -127,6 +134,7 @@ describe('POST /api/rounds', () => {
       assert.equal(res.status, 409);
       assert.equal(res.body.error.code, 'ROUND_EXISTS');
       assert.ok(res.body.error.message.length > 0);
+      assert.deepEqual(Object.keys(res.body.error), ['code', 'message'], 'error อื่นไม่มี field (D11)');
       assert.equal(srv.roundCount(), 1);
       const row = srv.db.prepare('SELECT restaurant FROM rounds').get();
       assert.equal(row.restaurant, 'ข้าวมันไก่ป้าแดง');
