@@ -210,6 +210,35 @@ describe('POST /api/rounds', () => {
     });
   });
 
+  describe('D9 ลำดับการตรวจ', () => {
+    test('มีรอบวันนี้แล้ว + body ผิด → 400 VALIDATION (ไม่ใช่ 409)', async () => {
+      assert.equal((await srv.request('POST', '/api/rounds', validBody())).status, 201);
+      const res = await srv.request('POST', '/api/rounds', validBody({ items: [{ name: 'a', price: 0 }] }));
+      assertValidationError(res, 'VALIDATION ก่อน ROUND_EXISTS', 'items[0].price');
+      const notJson = await srv.request('POST', '/api/rounds', 'not json');
+      assertValidationError(notJson, 'not json ก่อน ROUND_EXISTS', null);
+    });
+
+    // ผิดหลายจุด → ตอบจุดแรกตามลำดับ field ใน body ของ contract: restaurant → cutoffAt → items[i].name → items[i].price
+    const multi = [
+      ['restaurant + cutoffAt + items ผิด → restaurant',
+        { restaurant: '', cutoffAt: 'x', items: [] }, 'restaurant'],
+      ['cutoffAt + items ผิด → cutoffAt',
+        validBody({ cutoffAt: '2026-10-06T11:00:00+07:00', items: [{ name: '', price: 0 }] }), 'cutoffAt'],
+      ['ชื่อเมนูและราคาในรายการเดียวกันผิด → name',
+        validBody({ items: [{ name: '', price: 0 }] }), 'items[0].name'],
+      ['รายการที่ 1 ราคาผิด + รายการที่ 2 ชื่อผิด → items[0].price',
+        validBody({ items: [{ name: 'a', price: 0 }, { name: '', price: 10 }] }), 'items[0].price'],
+      ['items เกิน 30 + รายการข้างในผิด → items',
+        validBody({ items: Array.from({ length: 31 }, () => ({ name: '', price: 0 })) }), 'items'],
+    ];
+    for (const [label, body, field] of multi) {
+      test(label, async () => {
+        assertValidationError(await srv.request('POST', '/api/rounds', body), label, field);
+      });
+    }
+  });
+
   describe('409 ROUND_EXISTS', () => {
     test('เปิดรอบซ้ำในวันเดียวกัน → 409 และรอบเดิมไม่เปลี่ยน', async () => {
       assert.equal((await srv.request('POST', '/api/rounds', validBody())).status, 201);
