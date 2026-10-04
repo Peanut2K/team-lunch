@@ -66,9 +66,27 @@
   function fail(status, code, message) {
     return { status: status, body: { error: { code: code, message: message } } };
   }
+  // D11: VALIDATION มี field = path ของ field ที่ผิด หรือ null ถ้า body ทั้งก้อนผิด
+  function invalid(field, message) {
+    return { status: 400, body: { error: { code: 'VALIDATION', field: field, message: message } } };
+  }
   function clone(x) { return x == null ? x : JSON.parse(JSON.stringify(x)); }
 
+  // D8: ความยาวทุก field นับเป็น code point (สระ / วรรณยุกต์ไทยนับตัวละ 1)
   function charLen(s) { return Array.from(s).length; }
+  function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function trimmed(v) { return typeof v === 'string' ? v.trim() : ''; }
+
+  var LIMIT = {
+    NAME_MAX: 40,        // ชื่อคนสั่ง
+    NOTE_MAX: 100,       // หมายเหตุ
+    TEXT_MAX: 60,        // ชื่อร้าน / ชื่อเมนู (D8)
+    ITEMS_MAX: 30,       // เมนูต่อรอบ
+    PRICE_MIN: 1,
+    PRICE_MAX: 10000,    // D8
+    QTY_MIN: 1,
+    QTY_MAX: 10
+  };
   function isInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
   function nameKey(name) { return String(name).trim().toLowerCase(); }
 
@@ -119,48 +137,133 @@
 
   /* ---------- endpoints ---------- */
 
-  // POST /api/rounds
-  function createRound(body) {
-    // วันละ 1 รอบ: ถ้ามีรอบวันนี้แล้ว ตอบ ROUND_EXISTS ก่อน validation
-    if (todayRound()) return fail(409, 'ROUND_EXISTS', 'วันนี้เปิดรอบสั่งไปแล้ว');
+  /* ---------- validation (ตรวจตามลำดับ field ใน API contract, ตอบจุดแรกที่ผิด — D9) ---------- */
 
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return fail(400, 'VALIDATION', 'ข้อมูลที่ส่งมาไม่ถูกต้อง');
+  // body ของ POST /api/rounds: restaurant → cutoffAt → items[i].name → items[i].price
+  // คืน { error } หรือ { value: { restaurant, cutoffMs, items } }
+  function validateRound(body, now) {
+    if (!isPlainObject(body)) return { error: invalid(null, 'ข้อมูลรอบสั่งต้องเป็น JSON object') };
+
+    var restaurant = trimmed(body.restaurant);
+    if (!restaurant) return { error: invalid('restaurant', 'กรุณาใส่ชื่อร้าน') };
+    if (charLen(restaurant) > LIMIT.TEXT_MAX) {
+      return { error: invalid('restaurant', 'ชื่อร้านยาวได้ไม่เกิน ' + LIMIT.TEXT_MAX + ' ตัวอักษร') };
     }
-    var restaurant = typeof body.restaurant === 'string' ? body.restaurant.trim() : '';
-    if (!restaurant) return fail(400, 'VALIDATION', 'กรุณาใส่ชื่อร้าน');
 
+    if (body.cutoffAt === undefined || body.cutoffAt === null || body.cutoffAt === '') {
+      return { error: invalid('cutoffAt', 'กรุณาใส่เวลาปิดรับ') };
+    }
     var cutoff = parseIso(body.cutoffAt);
-    if (isNaN(cutoff)) return fail(400, 'VALIDATION', 'เวลาปิดรับไม่ถูกต้อง');
-    var now = nowMs();
-    if (cutoff <= now) return fail(400, 'VALIDATION', 'เวลาปิดรับต้องอยู่ในอนาคต');
+    if (isNaN(cutoff)) {
+      return { error: invalid('cutoffAt', 'เวลาปิดรับต้องเป็นรูปแบบ ISO 8601 พร้อม offset เช่น 2026-10-05T11:00:00+07:00') };
+    }
+    cutoff = Math.floor(cutoff / 1000) * 1000; // เก็บละเอียดระดับวินาที ให้ตรงกับที่แสดงใน cutoffAt
+    if (cutoff <= now) return { error: invalid('cutoffAt', 'เวลาปิดรับต้องอยู่ในอนาคต') };
+    // D10: ต้องอยู่วันเดียวกับรอบตามปฏิทินไทย (ไม่เกิน 23:59:59 ของวันนั้น)
+    if (bkkDate(cutoff) !== bkkDate(now)) {
+      return { error: invalid('cutoffAt', 'เวลาปิดรับต้องอยู่ภายในวันนี้ (ไม่เกิน 23:59 น.)') };
+    }
 
     var items = body.items;
-    if (!Array.isArray(items) || items.length < 1) return fail(400, 'VALIDATION', 'ต้องมีเมนูอย่างน้อย 1 รายการ');
-    if (items.length > 30) return fail(400, 'VALIDATION', 'เมนูได้ไม่เกิน 30 รายการ');
+    if (!Array.isArray(items) || items.length < 1) return { error: invalid('items', 'ต้องมีเมนูอย่างน้อย 1 รายการ') };
+    if (items.length > LIMIT.ITEMS_MAX) {
+      return { error: invalid('items', 'เมนูได้ไม่เกิน ' + LIMIT.ITEMS_MAX + ' รายการ') };
+    }
     var clean = [];
     for (var i = 0; i < items.length; i++) {
-      var it = items[i] || {};
-      var nm = typeof it.name === 'string' ? it.name.trim() : '';
-      if (!nm) return fail(400, 'VALIDATION', 'กรุณาใส่ชื่อเมนูให้ครบทุกรายการ');
-      if (!isInt(it.price) || it.price <= 0) {
-        return fail(400, 'VALIDATION', 'ราคา "' + nm + '" ต้องเป็นจำนวนเต็มบาทที่มากกว่า 0');
+      var it = items[i];
+      var n = i + 1;
+      var path = 'items[' + i + ']';
+      if (!isPlainObject(it)) return { error: invalid(path, 'เมนูรายการที่ ' + n + ' ไม่ถูกต้อง') };
+      var nm = trimmed(it.name);
+      if (!nm) return { error: invalid(path + '.name', 'กรุณาใส่ชื่อเมนูรายการที่ ' + n) };
+      if (charLen(nm) > LIMIT.TEXT_MAX) {
+        return { error: invalid(path + '.name', 'ชื่อเมนูรายการที่ ' + n + ' ยาวได้ไม่เกิน ' + LIMIT.TEXT_MAX + ' ตัวอักษร') };
       }
-      clean.push({ id: 'i' + (i + 1), name: nm, price: it.price });
+      if (!isInt(it.price) || it.price < LIMIT.PRICE_MIN || it.price > LIMIT.PRICE_MAX) {
+        return { error: invalid(path + '.price', 'ราคาเมนู "' + nm + '" ต้องเป็นจำนวนเต็ม 1–10,000 บาท') };
+      }
+      clean.push({ id: 'i' + n, name: nm, price: it.price });
+    }
+    return { value: { restaurant: restaurant, cutoffMs: cutoff, items: clean } };
+  }
+
+  // ชื่อคนสั่ง (key ของ order, D3): 1–40 ตัวอักษรหลังตัดช่องว่างหัวท้าย
+  function validateName(raw) {
+    var name = trimmed(raw);
+    if (!name) return { error: invalid('name', 'กรุณาใส่ชื่อของคุณ') };
+    if (charLen(name) > LIMIT.NAME_MAX) {
+      return { error: invalid('name', 'ชื่อยาวได้ไม่เกิน ' + LIMIT.NAME_MAX + ' ตัวอักษร') };
+    }
+    return { value: name };
+  }
+
+  // body ของ PUT orders: name → lines[i].itemId → lines[i].qty → note
+  // total คิดที่นี่ (BE) เท่านั้น
+  function validateOrder(r, body) {
+    if (!isPlainObject(body)) return { error: invalid(null, 'ข้อมูล order ต้องเป็น JSON object') };
+
+    var nv = validateName(body.name);
+    if (nv.error) return nv;
+
+    var lines = body.lines;
+    if (!Array.isArray(lines) || lines.length < 1) return { error: invalid('lines', 'เลือกเมนูอย่างน้อย 1 รายการ') };
+    var priceById = {};
+    r.items.forEach(function (it) { priceById[it.id] = it.price; });
+    var seen = {};
+    var clean = [];
+    var total = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i];
+      var path = 'lines[' + i + ']';
+      if (!isPlainObject(ln)) return { error: invalid(path, 'รายการที่ ' + (i + 1) + ' ไม่ถูกต้อง') };
+      if (typeof ln.itemId !== 'string' || !Object.prototype.hasOwnProperty.call(priceById, ln.itemId)) {
+        return { error: invalid(path + '.itemId', 'มีเมนูที่ไม่อยู่ในรอบสั่งนี้') };
+      }
+      if (seen[ln.itemId]) {
+        return { error: invalid(path + '.itemId', 'เลือกเมนูเดียวกันซ้ำในหลายบรรทัดไม่ได้') };
+      }
+      seen[ln.itemId] = true;
+      if (!isInt(ln.qty) || ln.qty < LIMIT.QTY_MIN || ln.qty > LIMIT.QTY_MAX) {
+        return { error: invalid(path + '.qty', 'จำนวนต่อเมนูต้องเป็นจำนวนเต็ม 1–10') };
+      }
+      clean.push({ itemId: ln.itemId, qty: ln.qty });
+      total += priceById[ln.itemId] * ln.qty;
     }
 
+    var note = body.note;
+    if (note === undefined || note === null) note = '';
+    if (typeof note !== 'string') return { error: invalid('note', 'หมายเหตุต้องเป็นข้อความ') };
+    note = note.trim();
+    if (charLen(note) > LIMIT.NOTE_MAX) {
+      return { error: invalid('note', 'หมายเหตุยาวได้ไม่เกิน ' + LIMIT.NOTE_MAX + ' ตัวอักษร') };
+    }
+    return { value: { name: nv.value, lines: clean, note: note, total: total } };
+  }
+
+  function insertRound(v, now) {
     var date = bkkDate(now);
     var r = {
       id: 'r_' + date.replace(/-/g, ''),
       date: date,
-      restaurant: restaurant,
-      cutoffAt: toBkkIso(cutoff),
-      items: clean,
+      restaurant: v.restaurant,
+      cutoffAt: toBkkIso(v.cutoffMs),
+      items: v.items,
       orders: []
     };
     db.rounds[r.id] = r;
     save(db);
-    return ok(201, roundView(r));
+    return r;
+  }
+
+  // POST /api/rounds
+  function createRound(body) {
+    // วันละ 1 รอบ: ถ้ามีรอบวันนี้แล้ว ตอบ ROUND_EXISTS ก่อน validation
+    if (todayRound()) return fail(409, 'ROUND_EXISTS', 'วันนี้เปิดรอบสั่งไปแล้ว เปิดซ้ำไม่ได้');
+    var now = nowMs();
+    var v = validateRound(body, now);
+    if (v.error) return v.error;
+    return ok(201, roundView(insertRound(v.value, now)));
   }
 
   // GET /api/rounds/today
@@ -176,40 +279,12 @@
     if (!r) return fail(404, 'NOT_FOUND', 'ไม่พบรอบสั่งนี้');
     if (roundStatus(r, nowMs()) === 'closed') return closedFail(r);
 
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return fail(400, 'VALIDATION', 'ข้อมูลที่ส่งมาไม่ถูกต้อง');
-    }
-    var name = typeof body.name === 'string' ? body.name.trim() : '';
-    if (charLen(name) < 1 || charLen(name) > 40) {
-      return fail(400, 'VALIDATION', 'กรุณาใส่ชื่อ 1–40 ตัวอักษร');
-    }
-
-    var lines = body.lines;
-    if (!Array.isArray(lines) || lines.length < 1) return fail(400, 'VALIDATION', 'เลือกเมนูอย่างน้อย 1 รายการ');
-    var priceById = {};
-    r.items.forEach(function (it) { priceById[it.id] = it.price; });
-    var seen = {};
-    var clean = [];
-    var total = 0;
-    for (var i = 0; i < lines.length; i++) {
-      var ln = lines[i] || {};
-      if (typeof ln.itemId !== 'string' || !(ln.itemId in priceById)) {
-        return fail(400, 'VALIDATION', 'มีเมนูที่ไม่อยู่ในรอบสั่งนี้');
-      }
-      if (seen[ln.itemId]) return fail(400, 'VALIDATION', 'เลือกเมนูเดียวกันซ้ำในหลายบรรทัดไม่ได้');
-      seen[ln.itemId] = true;
-      if (!isInt(ln.qty) || ln.qty < 1 || ln.qty > 10) {
-        return fail(400, 'VALIDATION', 'จำนวนต่อเมนูต้องเป็นจำนวนเต็ม 1–10');
-      }
-      clean.push({ itemId: ln.itemId, qty: ln.qty });
-      total += priceById[ln.itemId] * ln.qty;
-    }
-
-    var note = body.note;
-    if (note === undefined || note === null) note = '';
-    if (typeof note !== 'string') return fail(400, 'VALIDATION', 'หมายเหตุต้องเป็นข้อความ');
-    note = note.trim();
-    if (charLen(note) > 100) return fail(400, 'VALIDATION', 'หมายเหตุยาวได้ไม่เกิน 100 ตัวอักษร');
+    var v = validateOrder(r, body);
+    if (v.error) return v.error;
+    var name = v.value.name;
+    var clean = v.value.lines;
+    var note = v.value.note;
+    var total = v.value.total;
 
     var key = nameKey(name);
     var existing = null;
@@ -298,7 +373,7 @@
     var body;
     if (bodyText != null && bodyText !== '') {
       try { body = JSON.parse(bodyText); } catch (e) {
-        return fail(400, 'VALIDATION', 'ข้อมูลที่ส่งมาไม่ใช่ JSON');
+        return invalid(null, 'รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)');
       }
     }
 
@@ -362,13 +437,15 @@
 
     var cutoffInSec = typeof opts.cutoffInSec === 'number' ? opts.cutoffInSec : 25 * 60;
     var now = nowMs();
-    // สร้างรอบด้วยเวลาปิดในอนาคตก่อน แล้วค่อยเลื่อน (ให้ cutoff ติดลบได้ = รอบที่ปิดไปแล้ว)
-    var res = createRound({
+    // ข้อมูลตัวอย่างไม่ผ่าน validation ของ POST (ไม่งั้นเปิดหน้าหลัง 23:35 แล้วรอบตัวอย่างจะผิด D10)
+    // สร้างรอบด้วยเวลาปิดในอนาคตก่อน ใส่ order แล้วค่อยเลื่อน (ให้ cutoff ติดลบได้ = รอบที่ปิดไปแล้ว)
+    var r = insertRound({
       restaurant: opts.restaurant || DEMO.restaurant,
-      cutoffAt: toBkkIso(now + 60 * 60 * 1000),
-      items: opts.items || DEMO.items
-    });
-    var r = db.rounds[res.body.id];
+      cutoffMs: Math.floor(now / 1000) * 1000 + 60 * 60 * 1000,
+      items: (opts.items || DEMO.items).map(function (it, i) {
+        return { id: 'i' + (i + 1), name: it.name, price: it.price };
+      })
+    }, now);
     var orders = opts.orders === undefined ? DEMO.orders : opts.orders;
     (orders || []).forEach(function (o) { putOrder(r.id, o); });
     r.cutoffAt = toBkkIso(now + cutoffInSec * 1000);
