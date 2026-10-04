@@ -16,15 +16,15 @@
   --line: #e6d8bd;        /* เส้นแบ่ง */
   --line-strong: #cdb894;
 
-  --accent: #c2370f;      /* ส้มพริก — ใช้กับปุ่มหลักและตัวเลขสำคัญ */
-  --accent-hover: #a82e0b;
+  --accent: #b5320c;      /* ส้มพริก — ใช้กับปุ่มหลักและตัวเลขสำคัญ */
+  --accent-hover: #9c2a09;
   --accent-ink: #fff8f0;  /* ตัวอักษรบน accent */
   --accent-soft: #fbe2d4;
 
   --warn: #8f5300;        /* ขมิ้น — เหลือไม่ถึง 10 นาที (เตือนเบาๆ) */
   --warn-soft: #fbe8bd;
 
-  --closed: #75695e;      /* เทาอุ่น — ปิดรับแล้ว */
+  --closed: #675b51;      /* เทาอุ่น — ปิดรับแล้ว */
   --closed-soft: #ebe3d8;
 
   --focus: #1f5fbf;       /* วงแหวน focus ต้องเห็นชัดทั้งบนครีมและบนส้ม */
@@ -127,6 +127,7 @@ body {
   overflow-x: hidden; /* F8: ไม่มี scroll แนวนอน */
 }
 
+[hidden] { display: none !important; }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { line-height: 1.3; font-weight: 600; }
 ul, ol { margin: 0; padding: 0; list-style: none; }
