@@ -1,0 +1,8 @@
+{
+  "name": "team-lunch-qa",
+  "private": true,
+  "description": "QA tests (Playwright) — ข้าวเที่ยงทีม",
+  "devDependencies": {
+    "playwright": "1.56.0"
+  }
+}
