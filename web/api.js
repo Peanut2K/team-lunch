@@ -35,6 +35,8 @@
   var NETWORK_MESSAGE = 'ติดต่อ server ไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง';
 
   function toResult(status, body) {
+    // ทุกครั้งที่ API ตอบ serverNow มา ตั้งนาฬิกา server ใหม่ (D2: นับถอยหลังจากเวลา server)
+    if (body && typeof body.serverNow === 'string' && TL.clock) TL.clock.sync(body.serverNow);
     if (status >= 200 && status < 300) return status === 204 ? null : body;
     var err = body && body.error;
     if (err && typeof err.message === 'string') {
