@@ -40,6 +40,14 @@ function roundsRouter({ repo, now }) {
     res.status(201).json(toRoundJson(round, current));
   });
 
+  // F2 · ดูรอบวันนี้ (วันตามปฏิทินไทย) — status / serverNow คำนวณจากเวลา server ทุกครั้ง
+  router.get('/today', (req, res) => {
+    const current = now();
+    const round = repo.findByDate(bangkokDate(current));
+    if (!round) throw new ApiError(404, 'NO_ROUND', 'วันนี้ยังไม่มีรอบสั่งข้าว');
+    res.json(toRoundJson(round, current));
+  });
+
   return router;
 }
 
