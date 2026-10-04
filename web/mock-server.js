@@ -70,6 +70,8 @@
   function invalid(field, message) {
     return { status: 400, body: { error: { code: 'VALIDATION', field: field, message: message } } };
   }
+  var NOT_JSON = {}; // ตัวแทน body ที่ parse ไม่ได้
+  function notJson() { return invalid(null, 'รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)'); }
   function clone(x) { return x == null ? x : JSON.parse(JSON.stringify(x)); }
 
   // D8: ความยาวทุก field นับเป็น code point (สระ / วรรณยุกต์ไทยนับตัวละ 1)
@@ -123,6 +125,11 @@
     };
   }
 
+  function findRound(id) {
+    return Object.prototype.hasOwnProperty.call(db.rounds, id) ? db.rounds[id] : null;
+  }
+  function roundNotFound() { return fail(404, 'NOT_FOUND', 'ไม่พบรอบสั่งนี้'); }
+
   function todayRound() {
     var today = bkkDate(nowMs());
     for (var id in db.rounds) {
@@ -142,6 +149,7 @@
   // body ของ POST /api/rounds: restaurant → cutoffAt → items[i].name → items[i].price
   // คืน { error } หรือ { value: { restaurant, cutoffMs, items } }
   function validateRound(body, now) {
+    if (body === NOT_JSON) return { error: notJson() };
     if (!isPlainObject(body)) return { error: invalid(null, 'ข้อมูลรอบสั่งต้องเป็น JSON object') };
 
     var restaurant = trimmed(body.restaurant);
@@ -201,6 +209,7 @@
   // body ของ PUT orders: name → lines[i].itemId → lines[i].qty → note
   // total คิดที่นี่ (BE) เท่านั้น
   function validateOrder(r, body) {
+    if (body === NOT_JSON) return { error: notJson() };
     if (!isPlainObject(body)) return { error: invalid(null, 'ข้อมูล order ต้องเป็น JSON object') };
 
     var nv = validateName(body.name);
@@ -258,11 +267,11 @@
 
   // POST /api/rounds
   function createRound(body) {
-    // วันละ 1 รอบ: ถ้ามีรอบวันนี้แล้ว ตอบ ROUND_EXISTS ก่อน validation
-    if (todayRound()) return fail(409, 'ROUND_EXISTS', 'วันนี้เปิดรอบสั่งไปแล้ว เปิดซ้ำไม่ได้');
+    // D9: VALIDATION → ROUND_EXISTS (วันละ 1 รอบ)
     var now = nowMs();
     var v = validateRound(body, now);
     if (v.error) return v.error;
+    if (todayRound()) return fail(409, 'ROUND_EXISTS', 'วันนี้เปิดรอบสั่งไปแล้ว เปิดซ้ำไม่ได้');
     return ok(201, roundView(insertRound(v.value, now)));
   }
 
@@ -275,12 +284,12 @@
 
   // PUT /api/rounds/:id/orders
   function putOrder(roundId, body) {
-    var r = db.rounds[roundId];
-    if (!r) return fail(404, 'NOT_FOUND', 'ไม่พบรอบสั่งนี้');
-    if (roundStatus(r, nowMs()) === 'closed') return closedFail(r);
-
+    // D9: NOT_FOUND (ไม่มีรอบ) → VALIDATION → ROUND_CLOSED
+    var r = findRound(roundId);
+    if (!r) return roundNotFound();
     var v = validateOrder(r, body);
     if (v.error) return v.error;
+    if (roundStatus(r, nowMs()) === 'closed') return closedFail(r);
     var name = v.value.name;
     var clean = v.value.lines;
     var note = v.value.note;
@@ -321,10 +330,13 @@
 
   // DELETE /api/rounds/:id/orders/:name
   function deleteOrder(roundId, name) {
-    var r = db.rounds[roundId];
-    if (!r) return fail(404, 'NOT_FOUND', 'ไม่พบรอบสั่งนี้');
+    // D9: NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path) → ROUND_CLOSED → NOT_FOUND (ชื่อนี้ไม่มี order)
+    var r = findRound(roundId);
+    if (!r) return roundNotFound();
+    var nv = validateName(name);
+    if (nv.error) return nv.error;
     if (roundStatus(r, nowMs()) === 'closed') return closedFail(r);
-    var key = nameKey(name);
+    var key = nameKey(nv.value);
     for (var i = 0; i < r.orders.length; i++) {
       if (r.orders[i].key === key) {
         r.orders.splice(i, 1);
@@ -337,8 +349,8 @@
 
   // GET /api/rounds/:id/summary
   function getSummary(roundId) {
-    var r = db.rounds[roundId];
-    if (!r) return fail(404, 'NOT_FOUND', 'ไม่พบรอบสั่งนี้');
+    var r = findRound(roundId);
+    if (!r) return roundNotFound();
     var itemById = {};
     var qtyById = {};
     r.items.forEach(function (it, idx) { itemById[it.id] = { it: it, idx: idx }; qtyById[it.id] = 0; });
@@ -372,9 +384,8 @@
     var m;
     var body;
     if (bodyText != null && bodyText !== '') {
-      try { body = JSON.parse(bodyText); } catch (e) {
-        return invalid(null, 'รูปแบบข้อมูลไม่ถูกต้อง (ต้องเป็น JSON)');
-      }
+      // body ที่ไม่ใช่ JSON ให้ endpoint ตอบ VALIDATION เองตามลำดับ D9 (เช่น ไม่มีรอบ → NOT_FOUND ก่อน)
+      try { body = JSON.parse(bodyText); } catch (e) { body = NOT_JSON; }
     }
 
     if (p === '/api/rounds' && method === 'POST') return createRound(body);
