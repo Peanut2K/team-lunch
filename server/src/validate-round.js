@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseISOWithOffset } = require('./clock');
+const { parseISOWithOffset, bangkokDate } = require('./clock');
 const { validation } = require('./errors');
 const { isTextInRange } = require('./text');
 
@@ -40,6 +40,10 @@ function validateNewRound(body, now) {
   const cutoffAt = Math.floor(cutoff.getTime() / 1000) * 1000;
   if (cutoffAt <= now.getTime()) {
     throw validation('cutoffAt', 'เวลาปิดรับต้องอยู่ในอนาคต');
+  }
+  // D10 — ต้องอยู่วันเดียวกับรอบ (รอบคือวันนี้ตามปฏิทินไทย) ไม่เกิน 23:59:59 ของวันนั้น
+  if (bangkokDate(new Date(cutoffAt)) !== bangkokDate(now)) {
+    throw validation('cutoffAt', 'เวลาปิดรับต้องอยู่ภายในวันนี้ (ไม่เกิน 23:59:59 เวลาไทย)');
   }
 
   if (!Array.isArray(body.items) || body.items.length === 0) {

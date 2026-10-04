@@ -109,6 +109,41 @@ describe('POST /api/rounds', () => {
     assert.equal((await srv.request('GET', '/api/rounds/today')).status, 200);
   });
 
+  describe('D10 cutoffAt อยู่วันเดียวกับรอบ (ปฏิทินไทย)', () => {
+    test('23:59:59 ของวันนี้ผ่าน', async () => {
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-05T23:59:59+07:00' }));
+      assert.equal(res.status, 201);
+      assert.equal(res.body.cutoffAt, '2026-10-05T23:59:59+07:00');
+    });
+
+    test('23:59:59.999 ของวันนี้ผ่าน (ตัดเศษวินาที)', async () => {
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-05T23:59:59.999+07:00' }));
+      assert.equal(res.status, 201);
+      assert.equal(res.body.cutoffAt, '2026-10-05T23:59:59+07:00');
+    });
+
+    test('ตอบ message ภาษาไทยบอกว่าต้องอยู่ภายในวันนี้', async () => {
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-06T11:00:00+07:00' }));
+      assertValidationError(res, 'พรุ่งนี้', 'cutoffAt');
+      assert.equal(res.body.error.message, 'เวลาปิดรับต้องอยู่ภายในวันนี้ (ไม่เกิน 23:59:59 เวลาไทย)');
+    });
+
+    test('เปิดรอบตอน 23:30 ปิดรับ 11:00 พรุ่งนี้ไม่ได้ (เคสที่ QA ยกมา)', async () => {
+      clock.set('2026-10-05T23:30:00+07:00');
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-06T11:00:00+07:00' }));
+      assertValidationError(res, '23:30 → พรุ่งนี้', 'cutoffAt');
+      assert.equal(srv.roundCount(), 0);
+    });
+
+    test('ตอน 00:30 ไทย (UTC ยังเป็นเมื่อวาน) ปิดรับ 11:00 วันเดียวกันผ่าน และรอบเป็นวันไทย', async () => {
+      clock.set('2026-10-06T00:30:00+07:00'); // = 2026-10-05T17:30Z
+      const res = await srv.request('POST', '/api/rounds', validBody({ cutoffAt: '2026-10-06T04:00:00Z' }));
+      assert.equal(res.status, 201);
+      assert.equal(res.body.date, '2026-10-06');
+      assert.equal(res.body.cutoffAt, '2026-10-06T11:00:00+07:00');
+    });
+  });
+
   describe('400 VALIDATION', () => {
     // [label, body, field ที่ต้องได้ (D11)]
     const cases = [
@@ -127,6 +162,10 @@ describe('POST /api/rounds', () => {
       ['cutoffAt วันที่ไม่มีจริง', validBody({ cutoffAt: '2026-02-31T11:00:00+07:00' }), 'cutoffAt'],
       ['cutoffAt ในอดีต', validBody({ cutoffAt: '2026-10-05T08:59:59+07:00' }), 'cutoffAt'],
       ['cutoffAt เท่ากับตอนนี้พอดี', validBody({ cutoffAt: NOW }), 'cutoffAt'],
+      // D10 · cutoffAt ต้องอยู่วันเดียวกับรอบตามปฏิทินไทย
+      ['cutoffAt พรุ่งนี้ 00:00 เวลาไทย', validBody({ cutoffAt: '2026-10-06T00:00:00+07:00' }), 'cutoffAt'],
+      ['cutoffAt พรุ่งนี้ 11:00', validBody({ cutoffAt: '2026-10-06T11:00:00+07:00' }), 'cutoffAt'],
+      ['cutoffAt เป็น Z ที่ตรงกับวันพรุ่งนี้เวลาไทย (2026-10-05T17:00Z)', validBody({ cutoffAt: '2026-10-05T17:00:00Z' }), 'cutoffAt'],
       ['ไม่มี items', validBody({ items: undefined }), 'items'],
       ['items ไม่ใช่ array', validBody({ items: { name: 'a', price: 1 } }), 'items'],
       ['items ว่าง (0 รายการ)', validBody({ items: [] }), 'items'],
