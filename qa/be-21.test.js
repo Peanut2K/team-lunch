@@ -4,6 +4,7 @@
 // เกณฑ์: PRD F1, F2 + API contract (ไม่ใช่ test ของ Dev)
 // ส่วน A: start server จริง (`node src/index.js`) ด้วย PORT / DB_PATH แล้วยิง HTTP
 // ส่วน B: ใช้นาฬิกาจำลองผ่าน createApp({ now }) เพื่อตรวจขอบเวลา (±1 วินาที, เที่ยงคืนไทย)
+// อัปเดต tick 2: ตาม API contract v2 + Decision log D8–D11 (field ใน VALIDATION, เพดานค่า, ลำดับการตรวจ, cutoffAt วันเดียวกับรอบ)
 // รัน: node --test qa/be-21.test.js   (ต้อง `cd server && npm install` ก่อน)
 
 const test = require('node:test');
@@ -84,15 +85,27 @@ function fakeClock(iso) {
   return { now: () => new Date(t), set: (v) => { t = Date.parse(v); }, advance: (ms) => { t += ms; } };
 }
 
-/** ตรวจรูปแบบ error ตาม contract */
-function assertError(r, status, code) {
+/**
+ * ตรวจรูปแบบ error ตาม contract v2 (D11)
+ * VALIDATION → { error: { code, field, message } } · field = path หรือ null
+ * error อื่น → { error: { code, message } } ไม่มี key field
+ * @param {string|null|undefined} field ถ้าส่งมา (รวม null) ต้องตรงทุกตัว
+ */
+function assertError(r, status, code, field) {
   assert.equal(r.status, status, `status ควรเป็น ${status} ได้ ${r.status}: ${r.text}`);
   assert.match(r.type, /application\/json/);
   assert.ok(r.body && r.body.error, 'ต้องมี { error }');
   assert.deepEqual(Object.keys(r.body).sort(), ['error']);
   assert.equal(r.body.error.code, code);
+  if (code === 'VALIDATION') {
+    assert.deepEqual(Object.keys(r.body.error).sort(), ['code', 'field', 'message'], `VALIDATION ต้องมี field (D11): ${r.text}`);
+    assert.ok(r.body.error.field === null || typeof r.body.error.field === 'string', 'field ต้องเป็น string หรือ null');
+    if (field !== undefined) assert.equal(r.body.error.field, field, `field ควรเป็น ${field}: ${r.text}`);
+  } else {
+    assert.deepEqual(Object.keys(r.body.error).sort(), ['code', 'message'], `error ${code} ต้องไม่มี field (D11): ${r.text}`);
+  }
   assert.equal(typeof r.body.error.message, 'string');
-  assert.match(r.body.error.message, /[฀-๿]/, 'message ต้องเป็นภาษาไทย');
+  assert.match(r.body.error.message, /[\u0E00-\u0E7F]/, 'message ต้องเป็นภาษาไทย');
 }
 
 /** ตรวจรูปแบบ Round ตาม contract */
@@ -126,18 +139,23 @@ const MENU = [
   { name: 'ข้าวมันไก่ทอด', price: 55 },
   { name: 'ข้าวมันไก่รวม', price: 60 },
 ];
-const futureCutoff = (sec = 3600) => toBkkIso(Date.now() + sec * 1000);
+// D10: cutoffAt ต้องอยู่วันเดียวกับรอบ — ไม่ให้เลยเที่ยงคืนไทย (23:59:59 ของวันนี้)
+const endOfBkkDay = (ms = Date.now()) => Date.parse(`${bkkDate(ms)}T23:59:59+07:00`);
+const futureCutoff = (sec = 3600) => toBkkIso(Math.min(Date.now() + sec * 1000, endOfBkkDay()));
+// ส่วน A ใช้เวลาจริง — ถ้าเหลือไม่ถึง 3 นาทีก่อนเที่ยงคืนไทยให้ข้าม (ส่วน B ครอบขอบเวลาด้วยนาฬิกาจำลองแล้ว)
+const NEAR_MIDNIGHT = endOfBkkDay() - Date.now() < 180e3;
+const realTest = (name, fn) => test(name, { skip: NEAR_MIDNIGHT && 'ใกล้เที่ยงคืนไทยเกินไปสำหรับ test เวลาจริง' }, fn);
 
 // ───────────────────────── ส่วน A: server จริง ─────────────────────────
 
-test('A1 F2: ยังไม่มีรอบวันนี้ → 404 NO_ROUND (รูปแบบ error ตาม contract)', async () => {
+realTest('A1 F2: ยังไม่มีรอบวันนี้ → 404 NO_ROUND (รูปแบบ error ตาม contract)', async () => {
   const s = await startProcess(tmpDb());
   try {
     assertError(await s.req('GET', '/api/rounds/today'), 404, 'NO_ROUND');
   } finally { await s.close(); }
 });
 
-test('A2 F1/F2: เปิดรอบ 201 Round ครบ field แล้ว GET today คืนรอบเดียวกัน, เปิดซ้ำ 409 ROUND_EXISTS', async () => {
+realTest('A2 F1/F2: เปิดรอบ 201 Round ครบ field แล้ว GET today คืนรอบเดียวกัน, เปิดซ้ำ 409 ROUND_EXISTS', async () => {
   const s = await startProcess(tmpDb());
   try {
     const cutoff = futureCutoff(3600);
@@ -160,7 +178,7 @@ test('A2 F1/F2: เปิดรอบ 201 Round ครบ field แล้ว GET
   } finally { await s.close(); }
 });
 
-test('A3 F1: ส่งพร้อมกัน 10 request → 201 หนึ่งครั้ง ที่เหลือ 409 ROUND_EXISTS', async () => {
+realTest('A3 F1: ส่งพร้อมกัน 10 request → 201 หนึ่งครั้ง ที่เหลือ 409 ROUND_EXISTS', async () => {
   const s = await startProcess(tmpDb());
   try {
     const cutoff = futureCutoff(3600);
@@ -174,55 +192,76 @@ test('A3 F1: ส่งพร้อมกัน 10 request → 201 หนึ่�
   } finally { await s.close(); }
 });
 
-test('A4 F1 + contract: ทุกกรณี validation → 400 VALIDATION และไม่สร้างรอบ', async () => {
+realTest('A4 F1 + contract v2: ทุกกรณี validation → 400 VALIDATION พร้อม field ที่ถูก (D11) และไม่สร้างรอบ', async () => {
   const s = await startProcess(tmpDb());
   const ok = { restaurant: 'ร้าน', cutoffAt: futureCutoff(), items: MENU };
+  const items31 = Array.from({ length: 31 }, (_, i) => ({ name: `เมนู ${i}`, price: 40 }));
   const cases = [
-    ['ไม่มี restaurant', { cutoffAt: ok.cutoffAt, items: MENU }],
-    ['restaurant ว่าง', { ...ok, restaurant: '' }],
-    ['restaurant มีแต่ช่องว่าง', { ...ok, restaurant: '   ' }],
-    ['restaurant ไม่ใช่ string', { ...ok, restaurant: 123 }],
-    ['ไม่มี cutoffAt', { restaurant: 'ร้าน', items: MENU }],
-    ['cutoffAt ไม่ใช่เวลา', { ...ok, cutoffAt: 'พรุ่งนี้' }],
-    ['cutoffAt เป็นตัวเลข', { ...ok, cutoffAt: Date.now() + 3600e3 }],
-    ['cutoffAt วันที่ไม่มีจริง', { ...ok, cutoffAt: '2099-02-31T11:00:00+07:00' }],
-    ['cutoffAt ในอดีต', { ...ok, cutoffAt: toBkkIso(Date.now() - 60e3) }],
-    ['cutoffAt ในอดีต (เมื่อวาน)', { ...ok, cutoffAt: toBkkIso(Date.now() - 86400e3) }],
-    ['ไม่มี items', { restaurant: 'ร้าน', cutoffAt: ok.cutoffAt }],
-    ['items ไม่ใช่ array', { ...ok, items: { name: 'ก', price: 1 } }],
-    ['items ว่าง', { ...ok, items: [] }],
-    ['items 31 รายการ', { ...ok, items: Array.from({ length: 31 }, (_, i) => ({ name: `เมนู ${i}`, price: 40 })) }],
-    ['item ไม่ใช่ object', { ...ok, items: ['ข้าวผัด'] }],
-    ['item ไม่มีชื่อ', { ...ok, items: [{ price: 40 }] }],
-    ['item ชื่อว่าง', { ...ok, items: [{ name: ' ', price: 40 }] }],
-    ['price = 0', { ...ok, items: [{ name: 'ข้าว', price: 0 }] }],
-    ['price ติดลบ', { ...ok, items: [{ name: 'ข้าว', price: -5 }] }],
-    ['price ทศนิยม', { ...ok, items: [{ name: 'ข้าว', price: 49.5 }] }],
-    ['price เป็น string', { ...ok, items: [{ name: 'ข้าว', price: '50' }] }],
-    ['price null', { ...ok, items: [{ name: 'ข้าว', price: null }] }],
-    ['ไม่มี price', { ...ok, items: [{ name: 'ข้าว' }] }],
-    ['price ผิดในรายการที่ 2', { ...ok, items: [{ name: 'ก', price: 40 }, { name: 'ข', price: 0 }] }],
+    ['ไม่มี restaurant', { cutoffAt: ok.cutoffAt, items: MENU }, 'restaurant'],
+    ['restaurant ว่าง', { ...ok, restaurant: '' }, 'restaurant'],
+    ['restaurant มีแต่ช่องว่าง', { ...ok, restaurant: '   ' }, 'restaurant'],
+    ['restaurant ไม่ใช่ string', { ...ok, restaurant: 123 }, 'restaurant'],
+    ['ไม่มี cutoffAt', { restaurant: 'ร้าน', items: MENU }, 'cutoffAt'],
+    ['cutoffAt null', { ...ok, cutoffAt: null }, 'cutoffAt'],
+    ['cutoffAt ไม่ใช่เวลา', { ...ok, cutoffAt: 'พรุ่งนี้' }, 'cutoffAt'],
+    ['cutoffAt เป็นตัวเลข', { ...ok, cutoffAt: Date.now() + 60e3 }, 'cutoffAt'],
+    ['cutoffAt ไม่มี offset', { ...ok, cutoffAt: ok.cutoffAt.slice(0, 19) }, 'cutoffAt'],
+    ['cutoffAt วันที่ไม่มีจริง', { ...ok, cutoffAt: '2099-02-31T11:00:00+07:00' }, 'cutoffAt'],
+    ['cutoffAt ในอดีต', { ...ok, cutoffAt: toBkkIso(Date.now() - 60e3) }, 'cutoffAt'],
+    ['cutoffAt ในอดีต (เมื่อวาน)', { ...ok, cutoffAt: toBkkIso(Date.now() - 86400e3) }, 'cutoffAt'],
+    ['D10 cutoffAt พรุ่งนี้ 11:00', { ...ok, cutoffAt: `${bkkDate(Date.now() + 86400e3)}T11:00:00+07:00` }, 'cutoffAt'],
+    ['D10 cutoffAt เที่ยงคืนไทยคืนนี้', { ...ok, cutoffAt: toBkkIso(endOfBkkDay() + 1000) }, 'cutoffAt'],
+    ['ไม่มี items', { restaurant: 'ร้าน', cutoffAt: ok.cutoffAt }, 'items'],
+    ['items ไม่ใช่ array', { ...ok, items: { name: 'ก', price: 1 } }, 'items'],
+    ['items ว่าง', { ...ok, items: [] }, 'items'],
+    ['items 31 รายการ', { ...ok, items: items31 }, 'items'],
+    ['item ไม่ใช่ object', { ...ok, items: ['ข้าวผัด'] }, 'items[0]'],
+    ['item ที่ 2 เป็น null', { ...ok, items: [MENU[0], null] }, 'items[1]'],
+    ['item ไม่มีชื่อ', { ...ok, items: [{ price: 40 }] }, 'items[0].name'],
+    ['item ชื่อว่าง', { ...ok, items: [{ name: ' ', price: 40 }] }, 'items[0].name'],
+    ['item ชื่อไม่ใช่ string', { ...ok, items: [{ name: 5, price: 40 }] }, 'items[0].name'],
+    ['price = 0', { ...ok, items: [{ name: 'ข้าว', price: 0 }] }, 'items[0].price'],
+    ['price ติดลบ', { ...ok, items: [{ name: 'ข้าว', price: -5 }] }, 'items[0].price'],
+    ['price ทศนิยม', { ...ok, items: [{ name: 'ข้าว', price: 49.5 }] }, 'items[0].price'],
+    ['price เป็น string', { ...ok, items: [{ name: 'ข้าว', price: '50' }] }, 'items[0].price'],
+    ['price boolean', { ...ok, items: [{ name: 'ข้าว', price: true }] }, 'items[0].price'],
+    ['price null', { ...ok, items: [{ name: 'ข้าว', price: null }] }, 'items[0].price'],
+    ['ไม่มี price', { ...ok, items: [{ name: 'ข้าว' }] }, 'items[0].price'],
+    ['D8 price 10,001', { ...ok, items: [{ name: 'ข้าว', price: 10001 }] }, 'items[0].price'],
+    ['D8 price 2^53', { ...ok, items: [{ name: 'ข้าว', price: 2 ** 53 }] }, 'items[0].price'],
+    ['D8 price 1e20', { ...ok, items: [{ name: 'ข้าว', price: 1e20 }] }, 'items[0].price'],
+    ['D8 price 1e308', { ...ok, items: [{ name: 'ข้าว', price: 1e308 }] }, 'items[0].price'],
+    ['price ผิดในรายการที่ 3 (index 2)', { ...ok, items: [MENU[0], MENU[1], { name: 'ค', price: 0 }] }, 'items[2].price'],
+    ['D8 restaurant 61 code point', { ...ok, restaurant: 'ก'.repeat(61) }, 'restaurant'],
+    ['D8 restaurant ไทย 61 code point (สระ/วรรณยุกต์)', { ...ok, restaurant: 'ข้าว'.repeat(15) + 'ก' }, 'restaurant'],
+    ['D8 ชื่อเมนู 61 code point ในรายการที่ 2', { ...ok, items: [MENU[0], { name: '🍚'.repeat(61), price: 50 }] }, 'items[1].name'],
   ];
   try {
-    for (const [label, body] of cases) {
+    for (const [label, body, field] of cases) {
       const r = await s.req('POST', '/api/rounds', body);
-      try { assertError(r, 400, 'VALIDATION'); } catch (e) { e.message = `[${label}] ${e.message}`; throw e; }
+      try { assertError(r, 400, 'VALIDATION', field); } catch (e) { e.message = `[${label}] ${e.message}`; throw e; }
     }
-    // body ไม่ใช่ JSON / เป็น array / ว่าง
-    assertError(await s.req('POST', '/api/rounds', '{bad json', { raw: true }), 400, 'VALIDATION');
-    assertError(await s.req('POST', '/api/rounds', [ok]), 400, 'VALIDATION');
-    assertError(await s.req('POST', '/api/rounds', 'restaurant=x', { raw: true, contentType: 'application/x-www-form-urlencoded' }), 400, 'VALIDATION');
+    // D11: body ทั้งก้อนผิด → field null
+    assertError(await s.req('POST', '/api/rounds', '{bad json', { raw: true }), 400, 'VALIDATION', null);
+    assertError(await s.req('POST', '/api/rounds', [ok]), 400, 'VALIDATION', null);
+    assertError(await s.req('POST', '/api/rounds', '"ร้าน"', { raw: true }), 400, 'VALIDATION', null);
+    assertError(await s.req('POST', '/api/rounds', 'null', { raw: true }), 400, 'VALIDATION', null);
+    assertError(await s.req('POST', '/api/rounds', 'restaurant=x', { raw: true, contentType: 'application/x-www-form-urlencoded' }), 400, 'VALIDATION', null);
+    assertError(await s.req('POST', '/api/rounds', JSON.stringify(ok), { raw: true, contentType: 'text/plain' }), 400, 'VALIDATION', null);
+    // body ว่าง — contract ไม่ได้บอกชัดว่า null หรือ restaurant (หมายเหตุถึง Planner) ตรวจแค่ 400 VALIDATION
     assertError(await s.req('POST', '/api/rounds'), 400, 'VALIDATION');
-    // ไม่มีรอบหลุดถูกสร้าง
+    // ไม่มีรอบหลุดถูกสร้าง (รวม price ใหญ่ที่เคยทำ DB เสีย)
     assertError(await s.req('GET', '/api/rounds/today'), 404, 'NO_ROUND');
+    const good = await s.req('POST', '/api/rounds', ok);
+    assert.equal(good.status, 201, `หลัง 400 ทั้งหมดต้องเปิดรอบปกติได้: ${good.text}`);
   } finally { await s.close(); }
 });
 
-test('A5 contract: items 30 รายการ (ขอบบน) และ 1 รายการ (ขอบล่าง) ผ่าน · cutoffAt แบบ Z ตอบกลับเป็น +07:00', async () => {
+realTest('A5 contract: items 30 รายการ (ขอบบน) และ 1 รายการ (ขอบล่าง) ผ่าน · cutoffAt แบบ Z ตอบกลับเป็น +07:00', async () => {
   const s1 = await startProcess(tmpDb());
   try {
     const items = Array.from({ length: 30 }, (_, i) => ({ name: `เมนู ${i + 1}`, price: i + 1 }));
-    const cutoffMs = Date.now() + 3600e3;
+    const cutoffMs = Math.min(Date.now() + 3600e3, endOfBkkDay());
     const r = await s1.req('POST', '/api/rounds', { restaurant: '  ร้าน 30 เมนู  ', cutoffAt: new Date(cutoffMs).toISOString(), items });
     assert.equal(r.status, 201, r.text);
     assertRound(r.body, { restaurant: 'ร้าน 30 เมนู', cutoffMs, items, nowMs: Date.now(), status: 'open' });
@@ -235,7 +274,7 @@ test('A5 contract: items 30 รายการ (ขอบบน) และ 1 ร
   } finally { await s2.close(); }
 });
 
-test('A6 F2/F6: status เปลี่ยน open → closed เองเมื่อถึงเวลาปิด (เวลา server จริง)', async () => {
+realTest('A6 F2/F6: status เปลี่ยน open → closed เองเมื่อถึงเวลาปิด (เวลา server จริง)', async () => {
   const s = await startProcess(tmpDb());
   try {
     const cutoffMs = Math.ceil((Date.now() + 2000) / 1000) * 1000;
@@ -252,7 +291,7 @@ test('A6 F2/F6: status เปลี่ยน open → closed เองเมื�
   } finally { await s.close(); }
 });
 
-test('A7 รอบเก็บใน SQLite (DB_PATH) — restart server แล้วยังอยู่ และยังเปิดซ้ำไม่ได้', async () => {
+realTest('A7 รอบเก็บใน SQLite (DB_PATH) — restart server แล้วยังอยู่ และยังเปิดซ้ำไม่ได้', async () => {
   const db = tmpDb();
   const cutoff = futureCutoff();
   let s = await startProcess(db);
@@ -269,16 +308,45 @@ test('A7 รอบเก็บใน SQLite (DB_PATH) — restart server แล�
   } finally { await s.close(); }
 });
 
-test('A8 contract: price จำนวนเต็มที่ใหญ่มาก ต้องได้ 201 หรือ 400 VALIDATION เท่านั้น และรอบวันนี้ต้องยังใช้งานได้', async () => {
+realTest('A8 D8: ขอบเพดาน — price 1 / 10,000 ผ่าน · ชื่อร้าน/เมนู 60 code point ผ่าน (นับ code point ไม่ใช่ UTF-16) และอ่านกลับได้', async () => {
   const s = await startProcess(tmpDb());
   try {
-    // 2^53 เป็นจำนวนเต็ม > 0 ตาม JSON/JS — contract ไม่ได้กำหนดเพดานราคา
-    const r = await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureCutoff(), items: [{ name: 'ข้าว', price: 2 ** 53 }] });
-    assert.ok([201, 400].includes(r.status), `POST ได้ ${r.status}: ${r.text}`);
+    const restaurant = 'ข้าว'.repeat(15); // 60 code point, String#length = 60
+    const emoji60 = '🍚'.repeat(60); // 60 code point, String#length = 120
+    const thai60 = 'น้ำ'.repeat(20); // น + ้ + ำ = 3 code point × 20
+    const items = [
+      { name: emoji60, price: 1 },
+      { name: `  ${thai60}  `, price: 10000 },
+      { name: 'ก', price: 9999 },
+    ];
+    const r = await s.req('POST', '/api/rounds', { restaurant: `\t ${restaurant} `, cutoffAt: futureCutoff(), items });
+    assert.equal(r.status, 201, r.text);
+    assert.equal(r.body.restaurant, restaurant);
+    assert.deepEqual(r.body.items.map((i) => [i.name, i.price]), [[emoji60, 1], [thai60, 10000], ['ก', 9999]]);
     const g = await s.req('GET', '/api/rounds/today');
-    assert.ok([200, 404].includes(g.status), `GET today หลังจากนั้นได้ ${g.status}: ${g.text}`);
-    const again = await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureCutoff(), items: MENU });
-    assert.ok([201, 409].includes(again.status), `POST รอบปกติหลังจากนั้นได้ ${again.status}: ${again.text}`);
+    assert.equal(g.status, 200, g.text);
+    assert.deepEqual(g.body.items, r.body.items);
+  } finally { await s.close(); }
+});
+
+realTest('A9 D9: มีรอบแล้วแต่ body ผิด → 400 VALIDATION ไม่ใช่ 409 · ผิดหลายจุดตอบจุดแรกตามลำดับ restaurant → cutoffAt → items', async () => {
+  const s = await startProcess(tmpDb());
+  try {
+    assert.equal((await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureCutoff(), items: MENU })).status, 201);
+    // มีรอบแล้ว + body ผิด → VALIDATION ก่อน ROUND_EXISTS
+    assertError(await s.req('POST', '/api/rounds', { restaurant: '', cutoffAt: futureCutoff(), items: MENU }), 400, 'VALIDATION', 'restaurant');
+    assertError(await s.req('POST', '/api/rounds', '{', { raw: true }), 400, 'VALIDATION', null);
+    // ผิดทุกจุด → restaurant
+    const allBad = { restaurant: '', cutoffAt: 'x', items: [{ name: '', price: 0 }] };
+    assertError(await s.req('POST', '/api/rounds', allBad), 400, 'VALIDATION', 'restaurant');
+    assertError(await s.req('POST', '/api/rounds', { ...allBad, restaurant: 'ร้าน' }), 400, 'VALIDATION', 'cutoffAt');
+    assertError(await s.req('POST', '/api/rounds', { ...allBad, restaurant: 'ร้าน', cutoffAt: futureCutoff() }), 400, 'VALIDATION', 'items[0].name');
+    // ภายในรายการเดียวกัน name ก่อน price · รายการที่ index น้อยก่อน
+    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: futureCutoff(), items: [{ name: 'ก', price: 0 }, { name: '', price: 1 }] }), 400, 'VALIDATION', 'items[0].price');
+    // body ถูกทั้งหมด → 409 (ไม่มี field)
+    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้านสอง', cutoffAt: futureCutoff(), items: MENU }), 409, 'ROUND_EXISTS');
+    // 404 อื่นๆ ใต้ /api ก็ไม่มี field
+    assertError(await s.req('GET', '/api/nope'), 404, 'NOT_FOUND');
   } finally { await s.close(); }
 });
 
@@ -288,8 +356,8 @@ test('B1 F1: cutoffAt = now → 400, now − 1s → 400, now + 1s → 201', asyn
   const clock = fakeClock('2026-10-05T10:59:59+07:00');
   const s = await startWithClock(clock);
   try {
-    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T10:59:59+07:00', items: MENU }), 400, 'VALIDATION');
-    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T10:59:58+07:00', items: MENU }), 400, 'VALIDATION');
+    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T10:59:59+07:00', items: MENU }), 400, 'VALIDATION', 'cutoffAt');
+    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T10:59:58+07:00', items: MENU }), 400, 'VALIDATION', 'cutoffAt');
     const r = await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T11:00:00+07:00', items: MENU });
     assert.equal(r.status, 201, r.text);
     assert.equal(r.body.status, 'open');
@@ -337,5 +405,54 @@ test('B3 D2: "วันนี้" นับตามปฏิทินไทย 
     assert.equal(next.status, 201, next.text);
     assert.equal(next.body.id, 'r_20261006');
     assert.equal((await s.req('GET', '/api/rounds/today')).body.restaurant, 'ร้านวันใหม่');
+  } finally { await s.close(); }
+});
+
+test('B4 D10: cutoffAt ต้องอยู่วันเดียวกับรอบตามปฏิทินไทย (ขอบ 23:59:59 / 00:00, offset อื่น)', async () => {
+  const body = (cutoffAt) => ({ restaurant: 'ร้าน', cutoffAt, items: MENU });
+  // กรณีไม่ผ่าน — server เดียวกัน
+  {
+    const s = await startWithClock(fakeClock('2026-10-05T09:00:00+07:00'));
+    try {
+      for (const c of ['2026-10-06T00:00:00+07:00', '2026-10-05T17:00:00Z', '2026-10-06T02:00:00+09:00',
+        '2026-10-06T11:00:00+07:00', '2026-10-04T23:00:00+07:00']) {
+        const r = await s.req('POST', '/api/rounds', body(c));
+        try { assertError(r, 400, 'VALIDATION', 'cutoffAt'); } catch (e) { e.message = `[${c}] ${e.message}`; throw e; }
+      }
+      assertError(await s.req('GET', '/api/rounds/today'), 404, 'NO_ROUND');
+    } finally { await s.close(); }
+  }
+  // กรณีผ่าน — วันเดียวกันตามปฏิทินไทย แม้ offset / วันที่ใน string จะต่างกัน
+  for (const [c, expect] of [
+    ['2026-10-05T23:59:59+07:00', '2026-10-05T23:59:59+07:00'],
+    ['2026-10-05T16:59:59Z', '2026-10-05T23:59:59+07:00'],
+    ['2026-10-06T01:59:59+09:00', '2026-10-05T23:59:59+07:00'],
+    ['2026-10-04T23:00:00-05:00', '2026-10-05T11:00:00+07:00'],
+  ]) {
+    const s = await startWithClock(fakeClock('2026-10-05T09:00:00+07:00'));
+    try {
+      const r = await s.req('POST', '/api/rounds', body(c));
+      assert.equal(r.status, 201, `[${c}] ${r.text}`);
+      assert.equal(r.body.cutoffAt, expect);
+      assert.equal(r.body.id, 'r_20261005');
+    } finally { await s.close(); }
+  }
+});
+
+test('B5 D10 + F1: เปิดรอบตอน 23:30 ตั้งปิดรับพรุ่งนี้ 11:00 → 400 · ก่อนเที่ยงคืน 1 วินาที', async () => {
+  const clock = fakeClock('2026-10-05T23:30:00+07:00');
+  const s = await startWithClock(clock);
+  try {
+    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-06T11:00:00+07:00', items: MENU }), 400, 'VALIDATION', 'cutoffAt');
+    clock.set('2026-10-05T23:59:59+07:00');
+    assertError(await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T23:59:59+07:00', items: MENU }), 400, 'VALIDATION', 'cutoffAt');
+    clock.set('2026-10-05T23:59:58+07:00');
+    const r = await s.req('POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: '2026-10-05T23:59:59+07:00', items: MENU });
+    assert.equal(r.status, 201, r.text);
+    assert.equal(r.body.status, 'open');
+    clock.set('2026-10-05T23:59:59+07:00');
+    assert.equal((await s.req('GET', '/api/rounds/today')).body.status, 'closed');
+    clock.set('2026-10-06T00:00:00+07:00');
+    assertError(await s.req('GET', '/api/rounds/today'), 404, 'NO_ROUND');
   } finally { await s.close(); }
 });
