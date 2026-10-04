@@ -113,6 +113,10 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* F8 / WCAG 2.4.11: element ที่ได้ focus ต้องเลื่อนขึ้นมาอยู่เหนือแถบยอดติดล่างจอเสมอ
+     --orderbar-h ตั้งจาก ui.js ตามความสูงแถบจริง (ไม่มีแถบ = 0) */
+  scroll-padding-top: var(--s-4);
+  scroll-padding-bottom: calc(var(--orderbar-h, 0px) + var(--s-4));
 }
 
 body {
@@ -175,7 +179,8 @@ svg { display: block; flex-shrink: 0; }
   width: 100%;
   max-width: var(--page-max);
   margin: 0 auto;
-  padding: var(--s-4) var(--s-4) calc(var(--s-10) + 96px);
+  /* เผื่อที่ล่างหน้าให้เลื่อนเนื้อหาสุดท้ายขึ้นมาเหนือแถบยอดได้ */
+  padding: var(--s-4) var(--s-4) calc(var(--s-10) + var(--orderbar-h, 96px));
 }
 
 .stack > * + * { margin-top: var(--s-4); }

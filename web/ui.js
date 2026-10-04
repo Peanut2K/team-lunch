@@ -289,6 +289,47 @@
     return { dishes: dishes, total: total };
   }
 
+  /* ---------- focus ต้องไม่ถูกแถบยอดติดล่างจอบัง (F8, WCAG 2.4.11) ----------
+   * 1) ตั้ง --orderbar-h ที่ <html> ให้เท่าความสูงแถบจริง → CSS ใช้เป็น scroll-padding-bottom
+   *    browser จึงเลื่อน element ที่ได้ focus ขึ้นมาเหนือแถบเอง
+   * 2) กันพลาด: ตอน focusin เลื่อนหน้าให้ element ทั้งตัวอยู่เหนือแถบทันที แล้วเช็กซ้ำอีกเฟรม
+   *    (Chromium เลื่อนแค่ให้เห็นเคอร์เซอร์ของ textarea ไม่ใช่ทั้งช่อง scroll-padding อย่างเดียวจึงไม่พอ)
+   */
+  var FOCUS_GAP = 16; // ระยะเผื่อเหนือแถบ (ให้เห็น focus ring ด้วย)
+
+  function revealAboveBar(bar, t) {
+    var safeTop = FOCUS_GAP;
+    var safeBottom = bar.getBoundingClientRect().top - FOCUS_GAP;
+    var r = t.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return;
+    var dy = 0;
+    if (r.bottom > safeBottom) dy = r.bottom - safeBottom;
+    if (r.top - dy < safeTop) dy = r.top - safeTop; // สูงกว่าพื้นที่ที่เหลือ → ให้เห็นหัว element ก่อน
+    if (dy !== 0) window.scrollBy(0, dy > 0 ? Math.ceil(dy) : Math.floor(dy));
+  }
+
+  function keepFocusAboveBar(bar) {
+    var root = document.documentElement;
+    function measure() {
+      var h = bar.hidden ? 0 : Math.ceil(bar.getBoundingClientRect().height);
+      root.style.setProperty('--orderbar-h', h + 'px');
+    }
+    measure();
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(bar);
+    window.addEventListener('resize', measure);
+
+    document.addEventListener('focusin', function (e) {
+      var t = e.target;
+      if (bar.hidden || !t || t === document.body || bar.contains(t) || !t.getBoundingClientRect) return;
+      if (getComputedStyle(bar).position !== 'fixed') return;
+      revealAboveBar(bar, t);
+      // เช็กซ้ำหลัง browser เลื่อนตาม focus เอง
+      requestAnimationFrame(function () {
+        if (document.activeElement === t) revealAboveBar(bar, t);
+      });
+    });
+  }
+
   /* ---------- component: แถบยอด + ปุ่มยืนยัน (ติดล่างจอ ใช้นิ้วโป้งกดได้) ---------- */
   /**
    * opts: { onConfirm, label } · คืน { set({ dishes, total, disabled, busy, label }) }
@@ -308,6 +349,7 @@
     var totalEl = el.querySelector('.orderbar__total .num');
     var btn = el.querySelector('.orderbar__btn');
     btn.addEventListener('click', function () { if (opts.onConfirm) opts.onConfirm(); });
+    keepFocusAboveBar(el);
 
     function set(s) {
       s = s || {};
