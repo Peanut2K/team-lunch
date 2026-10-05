@@ -5,6 +5,10 @@ import { loadConfig } from "./config.mjs";
 import { verifyWebhook } from "./verify.mjs";
 import { TokenStore, authorizeUrl, oauthToken, postActivity, viewerId } from "./linear.mjs";
 import { Runner } from "./runner.mjs";
+import { renderDashboard } from "./dashboard.mjs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import path from "node:path";
+import { RUNNER_DIR } from "./config.mjs";
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -32,8 +36,19 @@ export function parseAgentEvent(body) {
   return { action: body.action, sessionId: s.id, issueIdentifier: issue.identifier, issueTitle: issue.title || "", userMessage };
 }
 
+function defaultLogger() {
+  const dir = path.join(RUNNER_DIR, "logs");
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, "runner.log");
+  return (m) => {
+    const line = `${new Date().toISOString()} ${m}`;
+    console.log(line);
+    try { appendFileSync(file, line + "\n"); } catch {}
+  };
+}
+
 export function createServer(config = loadConfig(), deps = {}) {
-  const log = deps.log || ((m) => console.log(new Date().toISOString(), m));
+  const log = deps.log || defaultLogger();
   const tokens = deps.tokens || new TokenStore(config);
   const runner = deps.runner || new Runner(config, { tokens, onLog: log });
   const states = new Map(); // oauth state -> agentKey
@@ -42,6 +57,9 @@ export function createServer(config = loadConfig(), deps = {}) {
     const url = new URL(req.url, "http://local");
     const parts = url.pathname.split("/").filter(Boolean);
     try {
+      if (req.method === "GET" && url.pathname === "/") {
+        return send(res, 200, renderDashboard(config, runner.status()), "text/html; charset=utf-8");
+      }
       if (req.method === "GET" && url.pathname === "/health") {
         return send(res, 200, runner.status());
       }

@@ -64,11 +64,20 @@ copy .env.example .env
 notepad .env      # ใส่ PUBLIC_URL และ ID / secret ของ 3 app
 ```
 
-### 5. รัน แล้วติดตั้ง agent เข้า workspace
+### 5. เช็กเครื่อง แล้วเปิด daemon
 
 ```powershell
-npm start
+npm run doctor              # ✔ / ✘ ทีละข้อ พร้อมวิธีแก้
+.\daemon\install.ps1        # รัน ngrok + agent-runner เบื้องหลังเดี๋ยวนี้ และทุกครั้งที่ล็อกอิน Windows
 ```
+
+* Dashboard: http://localhost:8787 — agent ไหนติดตั้งแล้ว / กำลังทำใบไหน / คิว / งานล่าสุด
+* Log: `agent-runner\logs\`
+* หยุดและเอาออกจาก startup: `.\daemon\uninstall.ps1` · ดูสถานะใน terminal: `.\daemon\status.ps1`
+* อยากรันแบบเห็นหน้าจอ (ตอน debug) ใช้ `npm start` แทน
+* ถ้า PowerShell ไม่ยอมรันสคริปต์: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+### 6. ติดตั้ง agent เข้า workspace
 
 เปิด 3 ลิงก์นี้ในเบราว์เซอร์ (ทีละอัน) แล้วกด Authorize — เลือกให้เข้าถึงทีม **Backend** และ **Frontend**:
 
@@ -76,9 +85,9 @@ npm start
 * `PUBLIC_URL/oauth/fe-dev/install`
 * `PUBLIC_URL/oauth/qa/install`
 
-เช็กสถานะได้ที่ `PUBLIC_URL/health` — ทั้ง 3 ตัวต้อง `"installed": true`
+(หรือกดลิงก์ "ติดตั้ง" ใน dashboard) — เสร็จแล้ว dashboard ต้องขึ้น "ว่าง" ทั้ง 3 ตัว
 
-### 6. ลองใช้
+### 7. ลองใช้
 
 ใน Linear เปิด issue แล้ว **assign ให้ agent** (ช่อง assignee จะมี BE Dev / FE Dev / QA) — Linear จะตั้งเป็น delegate โดยคุณยังเป็นเจ้าของ
 
@@ -89,7 +98,8 @@ npm start
 
 ## ข้อควรรู้
 
-* **ต้องเปิดคอม + `npm start` + ngrok ไว้** agent ถึงจะทำงาน (นี่คือแบบ A — แบบ B คือย้ายไป serverless)
+* **ต้องเปิดคอมไว้** agent ถึงจะทำงาน (daemon เปิดให้เองตอนล็อกอิน) — นี่คือแบบ A · แบบ B คือย้ายไป serverless
+* ถ้า agent-runner ล่ม daemon จะเปิดใหม่ให้เองใน 5 วินาที · ถ้าคอมดับระหว่างทำงาน issue จะค้างที่ `In Progress` แล้ว agent จะรับงานต่อจาก checklist + git log ตอน delegate ใหม่
 * แต่ละ agent มี worktree ของตัวเองที่ `WORK_DIR\<agent>` ทำทีละ 1 งาน งานที่มาซ้อนจะเข้าคิว
 * `CLAUDE_PERMISSION_MODE=bypassPermissions` ให้ agent รันคำสั่งได้โดยไม่ต้องมีคนกดอนุญาต — ใช้กับ worktree ของ repo นี้เท่านั้น ถ้าอยากเข้มกว่านี้ใช้ `auto`
 * token ของ app เก็บใน `.tokens.json` (อยู่ใน .gitignore) และ refresh เองทุก 24 ชม.

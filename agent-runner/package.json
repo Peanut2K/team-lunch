@@ -6,6 +6,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node --env-file=.env src/server.mjs",
+    "doctor": "node --env-file-if-exists=.env src/doctor.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

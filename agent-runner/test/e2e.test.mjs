@@ -152,3 +152,12 @@ test("agent not installed yet -> 401-free 200 to Linear but no crash, and health
   assert.equal(h.agents["be-dev"].installed, false);
   assert.equal(h.agents.qa.installed, true);
 });
+
+test("dashboard at / shows each agent and recent jobs", async () => {
+  const r = await fetch(`${base}/`);
+  assert.equal(r.status, 200);
+  const html = await r.text();
+  for (const name of ["BE Dev", "FE Dev", "QA"]) assert.ok(html.includes(name));
+  assert.ok(html.includes("FE-1"), "recent job listed");
+  assert.ok(html.includes("/oauth/be-dev/install"), "not-installed agent shows install link");
+});
