@@ -18,6 +18,7 @@
 | `server/` | Backend | `.claude/agents/be-dev.md` |
 | `web/` | Frontend | `.claude/agents/fe-dev.md` |
 | `qa/` | QA | `.claude/agents/qa.md` |
+| `agent-runner/` | Hi (infra) | — ตัวรับ webhook จาก Linear แล้วเรียก agent ข้างบน (D13) · agent ห้ามแก้ |
 
 ## Git
 

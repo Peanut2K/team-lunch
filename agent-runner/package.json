@@ -1,0 +1,11 @@
+{
+  "name": "team-lunch-agent-runner",
+  "private": true,
+  "type": "module",
+  "description": "Runs the BE Dev / FE Dev / QA Linear agents locally: Linear webhook -> Claude Code -> Linear",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node --env-file=.env src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

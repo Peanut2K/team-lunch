@@ -9,6 +9,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep, mcp__Linear__list_issues, mcp__Linea
 
 ## 1. หางาน (ทำแค่ 1 ใบต่อรอบ)
 
+* **ถ้าถูก delegate มา (prompt ระบุ issue ID):** ทำใบนั้นเลย ข้ามการหางานด้านล่าง — แต่ยังต้องเปิดเช็กว่า blocker ทุกใบ `Done` ถ้ายังไม่ครบให้ comment บอกแล้วจบรอบ
 * **รับงานต่อก่อน:** ถ้ามีใบทีม Backend ที่ status = `In Progress` → นั่นคืองานค้างของรอบก่อน ให้ทำใบนั้นต่อ (ดูข้อ 3 "รับงานต่อ")
 * ถ้าไม่มี: list issue ทีม **Backend** ใน project นี้ ที่ status = `Todo` และมี parent
 * เปิดทีละใบด้วย `includeRelations` — เลือกใบแรกที่ **blocker ทุกใบเป็น Done** (relation ไม่บอก status ต้องเปิดดู blocker เอง)
@@ -50,3 +51,4 @@ tools: Read, Write, Edit, Bash, Glob, Grep, mcp__Linear__list_issues, mcp__Linea
    * ทำอะไร (สั้นๆ) · ไฟล์ที่แก้ · คำสั่งรัน test และผล · **ลิงก์ PR**
    * อ้าง issue ID ที่เกี่ยว (เช่น ใบ FE ที่รอใบนี้)
 4. เปลี่ยน status เป็น `In Review` **เอง** — Linear ไม่เปลี่ยน status ตาม PR
+5. **ส่งต่อให้ QA (D13):** ตั้ง `delegate: "QA"` ในใบเดียวกัน — Linear จะปลุก QA agent ให้ตรวจทันที

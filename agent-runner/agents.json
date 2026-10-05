@@ -1,0 +1,5 @@
+{
+  "be-dev": { "envPrefix": "BE_DEV", "displayName": "BE Dev", "claudeAgent": "be-dev" },
+  "fe-dev": { "envPrefix": "FE_DEV", "displayName": "FE Dev", "claudeAgent": "fe-dev" },
+  "qa":     { "envPrefix": "QA",     "displayName": "QA",     "claudeAgent": "qa" }
+}

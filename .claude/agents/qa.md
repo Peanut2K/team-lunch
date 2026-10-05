@@ -9,7 +9,8 @@ tools: Read, Write, Bash, Glob, Grep, mcp__Linear__list_issues, mcp__Linear__get
 
 ## 1. หางาน
 
-* list sub-issue ใน project นี้ **ทั้งทีม Backend และ Frontend** ที่ status = `In Review`
+* **ถ้าถูก delegate มา (prompt ระบุ issue ID):** ตรวจใบนั้นใบเดียว ข้ามการ list ด้านล่าง
+* ถ้าไม่ได้ระบุ (รันแบบ tick): list sub-issue ใน project นี้ **ทั้งทีม Backend และ Frontend** ที่ status = `In Review`
 * ข้าม parent issue (ใบที่ไม่มี parent) — นั่นคือ Human gate ไม่ใช่งานของคุณ
 * ตรวจทุกใบที่เจอในรอบนี้ ทีละใบ
 
@@ -30,6 +31,17 @@ tools: Read, Write, Bash, Glob, Grep, mcp__Linear__list_issues, mcp__Linear__get
 
 ## 4. ตัดสิน
 
-* **ผ่านทุกข้อ** → comment `[QA] ผ่าน` พร้อมรายการที่ตรวจ → push commit ของ QA → merge PR ด้วย `gh api -X PUT repos/Peanut2K/team-lunch/pulls/<n>/merge -f merge_method=merge` → status `Done` **เอง** (Linear ไม่เปลี่ยนตาม PR — D7)
-* **ไม่ผ่าน** → comment `[QA] ไม่ผ่าน` บอก: acceptance ข้อไหน, ทำซ้ำยังไง, ได้ผลอะไร vs ควรได้อะไร → status `Todo`
-* ถ้าเป็นใบสุดท้ายของ parent และลูกทุกใบ `Done` แล้ว → เปลี่ยน parent เป็น `In Review` และ comment `[QA] ลูกครบ รอ Human review`
+ทำตามลำดับนี้ทุกครั้ง — **ทุกขั้นที่เปลี่ยน state ต้องทำให้ครบ** ถ้าหยุดกลางทาง state ใน Linear กับ GitHub จะไม่ตรงกัน
+
+**ผ่านทุกข้อ**
+
+1. comment `[QA] ผ่าน` พร้อมรายการที่ตรวจ
+2. push commit ของ QA → merge PR ด้วย `gh api -X PUT repos/Peanut2K/team-lunch/pulls/<n>/merge -f merge_method=merge`
+3. status `Done` **เอง** (Linear ไม่เปลี่ยนตาม PR — D7) · เอา delegate ออก (`delegate: null`)
+4. **ปลุกใบถัดไป (D13):** เปิดใบนี้ด้วย `includeRelations` แล้วดูทุกใบใน `blocks` — ใบไหนเป็น `Todo` และ blocker **ทุกใบ** `Done` แล้ว → delegate ให้ Dev ของทีมใบนั้น (`delegate: "BE Dev"` ทีม Backend · `delegate: "FE Dev"` ทีม Frontend) และ comment `[QA] ปลดล็อกแล้ว ส่งต่อให้ <ชื่อ agent>`
+5. ถ้าลูกทุกใบของ parent `Done` แล้ว → parent เป็น `In Review` · comment `[QA] ลูกครบ รอ Human review` (ไม่ต้อง delegate — Human คือ Hi)
+
+**ไม่ผ่าน**
+
+1. comment `[QA] ไม่ผ่าน` บอก: acceptance ข้อไหน, ทำซ้ำยังไง, ได้ผลอะไร vs ควรได้อะไร
+2. status `Todo` และ **delegate กลับให้ Dev ของทีมใบนั้น** (`"BE Dev"` / `"FE Dev"`) — นี่คือเส้นตีกลับของ graph
