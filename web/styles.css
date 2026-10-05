@@ -529,6 +529,12 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   gap: var(--s-3);
   min-height: var(--tap);
 }
+.done__confirm {
+  flex-basis: 100%;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+#order-done:focus-visible { border-radius: var(--r-panel); }
 .field__input:disabled {
   cursor: not-allowed;
   background: var(--closed-soft);

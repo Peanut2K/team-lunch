@@ -52,7 +52,56 @@
     TL.ui.orderDone(el, state.order, state.round.items, {
       disabled: state.closed,
       onEdit: startEdit,
-      onCancel: function () {}
+      onCancel: askCancel
+    });
+  }
+
+  /* ---------- ยกเลิก order (F5) — ถามยืนยันในการ์ดก่อน กันนิ้วโป้งพลาด ---------- */
+  function askCancel() {
+    if (!state.order || state.closed) return;
+    var actions = $('#order-done .done__actions');
+    actions.innerHTML =
+      '<p class="done__confirm" id="cancel-q">ยกเลิก order ของ ' + TL.escapeHtml(state.order.name) + ' ใช่ไหม</p>' +
+      '<button type="button" class="btn btn--secondary" data-act="cancel-yes" aria-describedby="cancel-q">ยกเลิก order</button>' +
+      '<button type="button" class="btn btn--quiet" data-act="cancel-no">ไม่ยกเลิก</button>';
+    var yes = actions.querySelector('[data-act="cancel-yes"]');
+    actions.querySelector('[data-act="cancel-no"]').addEventListener('click', function () {
+      renderDone();
+      var b = $('#order-done [data-act="cancel"]');
+      if (b) b.focus();
+    });
+    yes.addEventListener('click', function () { doCancel(yes); });
+    yes.focus();
+  }
+
+  function doCancel(btn) {
+    if (state.busy || !state.order) return;
+    state.busy = true;
+    btn.disabled = true;
+    btn.textContent = 'กำลังยกเลิก…';
+    var order = state.order;
+    TL.ui.notice($('#order-notice'), '');
+    state.lookupSeq++;
+    TL.api.deleteOrder(state.round.id, order.name).then(function () {
+      state.order = null;
+      clearPicks();
+      setMode('edit');
+      TL.ui.notice($('#order-notice'), 'ยกเลิก order ของ ' + order.name + ' แล้ว', 'info');
+      $('#order-notice').scrollIntoView({ block: 'nearest' });
+      $('#name').focus({ preventScroll: true });
+    }, function (err) {
+      if (err.code === 'NOT_FOUND' && state.round) {
+        // order ถูกยกเลิกไปแล้ว (เช่นจากเครื่องอื่น) — แสดง message จาก API แล้วกลับไปเลือกเมนู
+        state.order = null;
+        clearPicks();
+        setMode('edit');
+      } else {
+        renderDone();
+      }
+      showApiError(err);
+    }).then(function () {
+      state.busy = false;
+      refreshBar();
     });
   }
 
