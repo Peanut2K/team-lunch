@@ -17,8 +17,106 @@
     board: null,
     bar: null,
     closed: false,
-    busy: false
+    busy: false,
+    order: null,     // order ที่บันทึกแล้วของชื่อในช่อง (จาก API) หรือ null
+    mode: 'edit',    // 'edit' = เลือกเมนู · 'view' = เห็นการ์ด "สั่งแล้ว"
+    lookupSeq: 0     // กันผล GET order เก่ามาทับผลใหม่
   };
+
+  /* ---------- ชื่อจำไว้ในเครื่อง (F3) ---------- */
+  var NAME_KEY = 'teamlunch.name';
+  function loadName() {
+    try { return window.localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; }
+  }
+  function rememberName(name) {
+    try { window.localStorage.setItem(NAME_KEY, name); } catch (e) { /* ใช้ไม่ได้ก็ไม่เป็นไร */ }
+  }
+
+  /* ---------- โหมด: เลือกเมนู / ดู order ที่สั่งแล้ว ---------- */
+  function setMode(mode) {
+    state.mode = mode;
+    var viewing = mode === 'view' && !!state.order;
+    $('#order').hidden = viewing;
+    $('#orderbar').hidden = viewing;
+    $('#order-done').hidden = !viewing;
+    // แก้ order ที่มีอยู่ → หัวข้อบอกชัด + มีทางกลับไปการ์ดเดิม
+    var editingExisting = !viewing && !!state.order;
+    $('#order-title').textContent = editingExisting ? 'แก้ order ของ ' + state.order.name : 'เลือกเมนู';
+    $('#edit-cancel').hidden = !editingExisting;
+    if (viewing) renderDone();
+    refreshBar();
+  }
+
+  function renderDone() {
+    var el = $('#order-done');
+    TL.ui.orderDone(el, state.order, state.round.items, {
+      disabled: state.closed,
+      onEdit: startEdit,
+      onCancel: function () {}
+    });
+  }
+
+  /** เติมเมนู + หมายเหตุจาก order เดิม แล้วสลับไปโหมดแก้ */
+  function startEdit() {
+    if (!state.order || state.closed) return;
+    var map = {};
+    state.order.lines.forEach(function (ln) { map[ln.itemId] = ln.qty; });
+    state.board.setQty(map);
+    $('#note').value = state.order.note || '';
+    setMode('edit');
+    var first = $('#board .stepper__btn:not([disabled])');
+    $('#order').scrollIntoView({ block: 'start' });
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function clearPicks() {
+    state.board.setQty({});
+    $('#note').value = '';
+  }
+
+  /**
+   * ดู order ของชื่อนี้ (D12) — มีแล้ว: โชว์การ์ด "สั่งแล้ว" · ยังไม่สั่ง (404): กลับไปเลือกเมนู
+   * ถ้าผู้ใช้เลือกเมนูค้างไว้แล้วชื่อนี้มี order อยู่ → คงที่เลือกไว้ และบอกว่ากดยืนยันจะแทนที่ (F4)
+   */
+  function lookup() {
+    var name = $('#name').value.trim();
+    var seq = ++state.lookupSeq;
+    var wasViewing = state.mode === 'view';
+    if (!name) {
+      state.order = null;
+      if (wasViewing) clearPicks();
+      setMode('edit');
+      return Promise.resolve(null);
+    }
+    if (state.order && sameName(state.order.name, name)) return Promise.resolve(state.order);
+    return TL.api.getOrder(state.round.id, name).then(function (order) {
+      if (seq !== state.lookupSeq) return null;
+      state.order = order;
+      rememberName(order.name);
+      var hasPicks = state.board.getLines().length > 0;
+      if (!wasViewing && hasPicks && !state.closed) {
+        setMode('edit');
+        TL.ui.notice($('#order-notice'), 'ชื่อ ' + order.name + ' สั่งไว้แล้ว กดยืนยันอีกครั้งจะแทนที่ order เดิม', 'info');
+      } else {
+        TL.ui.notice($('#order-notice'), '');
+        setMode('view');
+      }
+      return order;
+    }, function (err) {
+      if (seq !== state.lookupSeq) return null;
+      state.order = null;
+      if (wasViewing) clearPicks();
+      setMode('edit');
+      // 404 = ชื่อนี้ยังไม่ได้สั่ง เป็นเรื่องปกติ ไม่ต้องเตือน
+      if (err.code !== 'NOT_FOUND') TL.ui.notice($('#order-notice'), err.message, 'error');
+      return null;
+    });
+  }
+
+  /** เทียบชื่อแบบเดียวกับ key ของ BE (ตัดช่องว่าง + ไม่สนตัวพิมพ์, D3) — ใช้แค่เลี่ยงยิง GET ซ้ำ */
+  function sameName(a, b) {
+    return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  }
 
   /* ---------- หัวหน้า ---------- */
   function renderMasthead() {
@@ -57,6 +155,8 @@
     state.closed = closed;
     if (state.board) state.board.setDisabled(closed);
     $('#note').disabled = closed;
+    // การ์ด "สั่งแล้ว": ปุ่มแก้ / ยกเลิกใช้ไม่ได้หลังปิดรับ (F5)
+    if (state.mode === 'view' && state.order) renderDone();
     refreshBar();
   }
 
@@ -83,6 +183,20 @@
     $('#orderbar').hidden = false;
     state.bar = TL.ui.orderBar($('#orderbar'), { onConfirm: function () {} });
     setClosed(state.closed || round.status === 'closed');
+
+    var nameInput = $('#name');
+    nameInput.value = loadName();
+    nameInput.addEventListener('change', lookup);
+    nameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); lookup(); }
+    });
+    $('#edit-cancel').addEventListener('click', function () {
+      TL.ui.notice($('#order-notice'), '');
+      setMode('view');
+      $('#order-done').focus();
+    });
+    setMode('edit');
+    if (nameInput.value.trim()) lookup();
   }
 
   /* ---------- ไม่มีรอบ / โหลดไม่ได้ ---------- */
