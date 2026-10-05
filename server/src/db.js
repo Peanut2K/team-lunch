@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS order_lines (
 function openDb(dbPath = ':memory:') {
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA foreign_keys = ON;');
+  // BE-24: ถ้ามีหลาย process เปิดไฟล์ DB เดียวกัน ให้รอ lock แทนการตอบ SQLITE_BUSY (500) ทันที
+  db.exec('PRAGMA busy_timeout = 5000;');
   if (dbPath !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
   return db;
