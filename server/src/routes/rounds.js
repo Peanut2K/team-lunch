@@ -6,14 +6,19 @@ const { ApiError, readBody } = require('../errors');
 const { isUniqueViolation } = require('../db');
 const { validateNewRound } = require('../validate-round');
 const { toRoundJson } = require('../round-view');
+const { ordersRouter } = require('./orders');
 
 const roundExists = () => new ApiError(409, 'ROUND_EXISTS', 'วันนี้เปิดรอบสั่งไปแล้ว เปิดซ้ำไม่ได้');
 
 /**
- * @param {{repo: ReturnType<import('../rounds-repo').createRoundsRepo>, now: () => Date}} deps
+ * @param {{repo: ReturnType<import('../rounds-repo').createRoundsRepo>,
+ *   ordersRepo: ReturnType<import('../orders-repo').createOrdersRepo>, now: () => Date}} deps
  */
-function roundsRouter({ repo, now }) {
+function roundsRouter({ repo, ordersRepo, now }) {
   const router = express.Router();
+
+  // F3–F5 · order ของรอบ (PUT / GET / DELETE)
+  router.use('/:id/orders', ordersRouter({ repo, ordersRepo, now }));
 
   // F1 · เปิดรอบสั่งวันนี้
   router.post('/', (req, res) => {
