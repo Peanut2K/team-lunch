@@ -296,9 +296,26 @@
     state.closed = closed;
     if (state.board) state.board.setDisabled(closed);
     $('#note').disabled = closed;
-    // การ์ด "สั่งแล้ว": ปุ่มแก้ / ยกเลิกใช้ไม่ได้หลังปิดรับ (F5)
-    if (state.mode === 'view' && state.order) renderDone();
+    if (closed && state.order && state.mode === 'edit' && $('#order')) {
+      // ปิดรับระหว่างแก้: ที่แก้ค้างไว้ส่งไม่ได้แล้ว → กลับไปโชว์ order ที่บันทึกไว้จริง
+      TL.ui.notice($('#order-notice'), '');
+      setMode('view');
+    } else if (state.mode === 'view' && state.order) {
+      // การ์ด "สั่งแล้ว": ปุ่มแก้ / ยกเลิกใช้ไม่ได้หลังปิดรับ (F5)
+      renderDone();
+    }
+    if (closed) $('#edit-cancel').hidden = true;
     refreshBar();
+  }
+
+  /* ---------- กลับมาที่แท็บ: ขอเวลา server ใหม่ (D2) ----------
+   * มือถือพักหน้าจอแล้วตัวนับในหน้าอาจคลาด → ถาม server ใหม่ทุกครั้งที่หน้ากลับมาให้เห็น
+   */
+  function watchVisibility() {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshRound();
+    });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) refreshRound(); });
   }
 
   /* ---------- แถบยอด ---------- */
@@ -368,6 +385,7 @@
       state.round = round;
       renderRoundHead(round);
       setupOrdering(round);
+      watchVisibility();
     }, showNoRound);
   }
 
