@@ -636,3 +636,64 @@ test('F8 · 360px ค่าปกติภาษาไทยยาว: ไม่
     assert.deepEqual(d.errors, []);
   } finally { await d.ctx.close(); await s.close(); }
 });
+
+// ───────────────────────── F8 regression ของ ef276f4 (`body { overflow-wrap: anywhere }`) ─────────────────────────
+// ค่าปกติ (ภาษาไทยมีวรรค, ตัวเลขราคา/ยอดหลักหมื่น-แสน, เวลา) ต้องตัดบรรทัดเหมือนเดิม — ไม่ตัดกลางคำ/กลางตัวเลข
+// วิธี: เทียบจำนวนบรรทัดของทุกข้อความกับหน้าเดียวกันที่บังคับ overflow-wrap: normal (ดู lib/wrap-audit.js)
+const { wrapAudit } = require('./lib/wrap-audit');
+test('F8 · regression overflow-wrap: ข้อความไทยปกติ / ตัวเลข / ราคา ไม่ถูกตัดผิดที่ (360 + 1280, light/dark)', async (t) => {
+  if (endOfBkkDay() - Date.now() < 30 * 60e3) { t.skip('ใกล้เที่ยงคืนเกินไป'); return; }
+  const s = await startServer();
+  const r = await s.api('POST', '/api/rounds', {
+    restaurant: 'ข้าวมันไก่เจ้าเก่าประตูน้ำ สาขาสีลม ซอย 5', cutoffAt: toBkk(Math.min(Date.now() + 3600e3, endOfBkkDay())),
+    items: [
+      { name: 'ข้าวมันไก่ต้ม + ไก่ทอด (พิเศษ) เพิ่มเลือด', price: 10000 },
+      { name: 'ก๋วยเตี๋ยวเรือน้ำตกหมูตุ๋น เส้นเล็ก', price: 9999 },
+      { name: 'เกาเหลา', price: 45 },
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  t.after(() => s.close());
+  for (const [w, scheme] of [[360, 'light'], [1280, 'dark']]) {
+    await t.test(`${w}px ${scheme}`, async () => {
+      const d = await newDevice({ width: w, height: 780, scheme });
+      const problems = [];
+      const check = async (label) => {
+        const a = await wrapAudit(d.page);
+        if (a.scrollWidth > w) problems.push(`${label}: scrollWidth ${a.scrollWidth}`);
+        if (a.baselineOverflow) problems.push(`${label}: ค่าปกติแต่ล้นจอแม้ไม่มี overflow-wrap`);
+        for (const x of a.diffs) problems.push(`${label}: ตัดบรรทัดต่างจากปกติ ${x}`);
+        for (const x of a.brokenNums) problems.push(`${label}: ตัวเลขถูกตัดข้ามบรรทัด ${x}`);
+      };
+      try {
+        const p = d.page;
+        await gotoOrder(p, s.base);
+        await check('เปิดหน้า');
+        for (let k = 0; k < 10; k++) await p.locator('#board .dish').nth(0).locator('[data-step="1"]').click();
+        for (let k = 0; k < 10; k++) await p.locator('#board .dish').nth(1).locator('[data-step="1"]').click();
+        await p.locator('#board .dish').nth(2).locator('[data-step="1"]').click();
+        await check('เลือกเมนู ยอดหลักแสน');
+        await p.fill('#name', `สมศักดิ์ รักษ์ศรีสวัสดิ์ ${w}`);
+        await p.fill('#note', 'ไม่เผ็ด ไม่ใส่ผักชี ขอน้ำจิ้มแยก 2 ถุง โทร 081-234-5678 ถ้าของหมด');
+        await barBtn(p).click();
+        await p.waitForSelector('#order-done:not([hidden]) .done__title');
+        await check('การ์ดสั่งแล้ว');
+        await p.screenshot({ path: path.join(SHOTS, `fe-2-wrap-${w}-${scheme}-done.png`), fullPage: true });
+        await p.locator('#order-done [data-act="edit"]').click();
+        await check('แก้ order');
+        await p.click('#edit-cancel');
+        await p.locator('#order-done [data-act="cancel"]').click();
+        await check('ถามยืนยันยกเลิก');
+        await p.locator('[data-act="cancel-yes"]').click();
+        await p.waitForSelector('#order-notice:not([hidden])');
+        await check('ยกเลิกแล้ว');
+        // component สรุปยอดใน kit.html (ชุด .person__* / .tally__* ที่ ef276f4 แตะ)
+        await p.goto(s.base + '/kit.html');
+        await p.waitForLoadState('networkidle');
+        await check('kit.html');
+        assert.deepEqual(d.errors, []);
+        assert.deepEqual(problems, []);
+      } finally { await d.ctx.close(); }
+    });
+  }
+});
