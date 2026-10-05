@@ -1,11 +1,23 @@
 'use strict';
 
 const express = require('express');
-const { toBangkokISO } = require('../clock');
-const { notFound, readBody, validation } = require('../errors');
+const { bangkokTime, toBangkokISO } = require('../clock');
+const { ApiError, notFound, readBody, validation } = require('../errors');
+const { roundStatus } = require('../round-view');
 const { validateOrder, validatePersonName } = require('../validate-order');
 
 const roundNotFound = () => notFound('ไม่พบรอบสั่งนี้');
+
+/**
+ * F6 / D2 · ปิดรับตามเวลา server — ใช้กฎเดียวกับ `status` ใน Round (roundStatus: now >= cutoffAt = ปิด)
+ * จึงไม่มีช่วงที่ Round บอก "open" แต่ PUT/DELETE ตอบ ROUND_CLOSED หรือกลับกัน
+ * message บอกเวลาที่ปิด (HH:mm เวลาไทย) ตามตัวอย่างใน API contract
+ */
+function assertRoundOpen(round, current) {
+  if (roundStatus(round, current) === 'closed') {
+    throw new ApiError(409, 'ROUND_CLOSED', `ปิดรับ order แล้วเมื่อ ${bangkokTime(new Date(round.cutoffAt))}`);
+  }
+}
 
 /**
  * path `/<name>` แบบ regex ไม่มี capture group — express จึงไม่ decode ชื่อให้เอง
@@ -39,7 +51,7 @@ function toOrderJson(o) {
 /**
  * route ใต้ /api/rounds/:id/orders
  * ลำดับ error (D9): NOT_FOUND (ไม่มีรอบ) → VALIDATION → ROUND_CLOSED
- * ROUND_CLOSED (ปิดรับตามเวลา server) ทำใน BE-24 — จุดที่ต้องตรวจมี comment `BE-24` กำกับไว้
+ * ROUND_CLOSED (ปิดรับตามเวลา server, BE-24) ตัดสินด้วยเวลา server ตอน request มาถึง (now() ครั้งเดียวต่อ request)
  * @param {{repo, ordersRepo, now: () => Date}} deps
  */
 function ordersRouter({ repo, ordersRepo, now }) {
@@ -51,7 +63,7 @@ function ordersRouter({ repo, ordersRepo, now }) {
     const round = repo.findById(req.params.id);
     if (!round) throw roundNotFound();
     const input = validateOrder(readBody(req), round);
-    // BE-24: ตรวจ ROUND_CLOSED ตรงนี้ (หลัง VALIDATION ตาม D9)
+    assertRoundOpen(round, current); // หลัง VALIDATION ตาม D9
     const { order } = ordersRepo.upsert({ roundId: round.id, ...input, at: current.getTime() });
     res.status(200).json(toOrderJson(order));
   });
@@ -69,15 +81,16 @@ function ordersRouter({ repo, ordersRepo, now }) {
   });
 
   // F5 · ยกเลิก order ของชื่อนี้ → 204
-  // ลำดับ (D9): NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path, field "name") → ROUND_CLOSED (BE-24)
+  // ลำดับ (D9): NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path, field "name") → ROUND_CLOSED
   //             → NOT_FOUND (ชื่อนี้ไม่มี order)
   router.delete(NAME_PATH, (req, res) => {
+    const current = now();
     const round = repo.findById(req.params.id);
     if (!round) throw roundNotFound();
     const raw = decodeName(req);
     if (raw === null) throw validation('name', 'ชื่อใน URL ไม่ถูกต้อง (ต้อง URL-encode)');
     const name = validatePersonName(raw);
-    // BE-24: ตรวจ ROUND_CLOSED ตรงนี้ (หลัง VALIDATION ก่อนหา order ตาม D9)
+    assertRoundOpen(round, current); // หลัง VALIDATION ก่อนหา order (D9) — ปิดแล้วตอบ 409 แม้ชื่อนี้ไม่มี order
     if (!ordersRepo.deleteByName(round.id, name)) throw notFound('ไม่พบ order ของชื่อนี้');
     res.status(204).end();
   });
