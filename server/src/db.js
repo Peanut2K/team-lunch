@@ -19,6 +19,27 @@ CREATE TABLE IF NOT EXISTS items (
   price       INTEGER NOT NULL CHECK (price > 0),  -- จำนวนเต็มบาท (D4)
   PRIMARY KEY (round_id, id)
 );
+
+CREATE TABLE IF NOT EXISTS orders (
+  id          TEXT    PRIMARY KEY,                 -- o_xxxxxxxx คงเดิมเมื่อแทนที่ order
+  round_id    TEXT    NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+  name_key    TEXT    NOT NULL,                    -- ชื่อตัดช่องว่างหัวท้าย + ตัวพิมพ์เล็ก (D3)
+  name        TEXT    NOT NULL,                    -- ชื่อที่ส่งมาล่าสุด (ตัดช่องว่างหัวท้าย)
+  note        TEXT    NOT NULL DEFAULT '',
+  total       INTEGER NOT NULL,                    -- จำนวนเต็มบาท คำนวณที่ BE (D4)
+  created_at  INTEGER NOT NULL,                    -- epoch ms
+  updated_at  INTEGER NOT NULL,                    -- epoch ms
+  UNIQUE (round_id, name_key)                      -- 1 ชื่อ 1 order ต่อรอบ
+);
+
+CREATE TABLE IF NOT EXISTS order_lines (
+  order_id    TEXT    NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  position    INTEGER NOT NULL,
+  item_id     TEXT    NOT NULL,
+  qty         INTEGER NOT NULL CHECK (qty BETWEEN 1 AND 10),
+  PRIMARY KEY (order_id, position),
+  UNIQUE (order_id, item_id)
+);
 `;
 
 /** เปิด DB และสร้างตารางถ้ายังไม่มี */
