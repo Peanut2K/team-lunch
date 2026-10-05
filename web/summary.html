@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fbf4e4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a130f" media="(prefers-color-scheme: dark)">
+  <title>สรุปยอด · ข้าวเที่ยงทีม</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    /* ?theme=light|dark บังคับธีม (ไว้ให้ QA ถ่าย screenshot) — ปกติตามเครื่อง */
+    (function () {
+      var t = new URLSearchParams(location.search).get('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">ข้ามไปเนื้อหา</a>
+  <main id="main" class="page page--host" tabindex="-1">
+    <header class="masthead">
+      <p class="masthead__brand" id="brand">ข้าวเที่ยงทีม</p>
+      <span class="mode-chip" id="mode-chip" hidden></span>
+    </header>
+
+    <!-- หัวรอบ: ร้าน + เวลาปิดรับ -->
+    <section class="round-head" id="round-head" aria-labelledby="store">
+      <h1 class="round-head__store" id="store">กำลังโหลดรอบวันนี้…</h1>
+      <p class="round-head__date" id="round-date"></p>
+      <div id="cutoff" hidden></div>
+    </section>
+
+    <div id="no-round" hidden></div>
+
+    <div class="stack">
+      <div id="sum-notice" hidden></div>
+
+      <!-- ลิงก์ให้ทีมสั่ง (หลังเปิดรอบ) -->
+      <div class="sum-share" id="share" hidden>
+        <p class="sum-share__text">ส่งลิงก์นี้ให้ทีมสั่ง<br><a class="sum-share__url" id="share-url" data-href="index.html"></a></p>
+        <button type="button" class="btn btn--secondary" id="share-copy">คัดลอกลิงก์</button>
+      </div>
+
+      <section id="sum-section" aria-labelledby="sum-title" hidden>
+        <div class="sum-bar">
+          <h2 class="sum-bar__title" id="sum-title">สรุปยอด</h2>
+          <button type="button" class="btn btn--secondary" id="refresh">รีเฟรช</button>
+        </div>
+        <p class="sum-bar__updated" id="updated"></p>
+        <div id="summary"></div>
+      </section>
+    </div>
+
+    <nav class="host-nav" aria-label="หน้าอื่น">
+      <a class="btn btn--quiet" data-href="index.html">หน้าสั่งอาหาร</a>
+      <a class="btn btn--quiet" data-href="open.html">เปิดรอบสั่ง</a>
+    </nav>
+  </main>
+
+  <script src="mock-server.js"></script>
+  <script src="api.js"></script>
+  <script src="ui.js"></script>
+  <script src="summary.js"></script>
+</body>
+</html>

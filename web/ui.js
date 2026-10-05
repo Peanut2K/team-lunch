@@ -437,7 +437,8 @@
   /* ---------- component: สรุปยอด (ตัวเลขทั้งหมดมาจาก API) ---------- */
   function summary(el, s) {
     el.className = 'tally';
-    var byItem = s.byItem.slice().sort(function (a, b) { return b.qty - a.qty; });
+    // แสดงตามลำดับที่ API ตอบ (D16: จำนวนมาก→น้อย เท่ากันตามลำดับเมนู) — ไม่เรียงเองที่ FE
+    var byItem = s.byItem;
     el.innerHTML =
       '<div class="tally__totals">' +
         '<p><span class="tally__grand num">' + fmt.baht(s.grandTotal) + '</span> <span class="tally__unit">บาท</span></p>' +
@@ -464,7 +465,40 @@
       }).join('') + '</ul>' : '<p class="tally__none">ยังไม่มีใครสั่ง</p>');
   }
 
+  /* ---------- หัวหน้า + ลิงก์ระหว่างหน้า (FE-3) ---------- */
+  /** brand + ป้าย "server จำลอง" (ใช้ id #brand, #mode-chip) */
+  function masthead() {
+    var brand = document.getElementById('brand');
+    if (brand) brand.innerHTML = icons.bowl(20) + '<span>ข้าวเที่ยงทีม</span>';
+    var chip = document.getElementById('mode-chip');
+    if (chip && TL.api && TL.api.mode === 'mock') {
+      chip.textContent = 'server จำลอง';
+      chip.title = 'ข้อมูลในหน้านี้มาจาก server จำลองในเครื่องนี้';
+      chip.hidden = false;
+    }
+  }
+
+  /** href ไปหน้าอื่น โดยคง ?api= และ ?theme= ของหน้านี้ไว้ (ไม่พา ?mock= ไปด้วย กันล้างข้อมูลซ้ำ) */
+  function pageHref(file) {
+    var keep = [];
+    try {
+      var q = new URLSearchParams(location.search);
+      ['api', 'theme'].forEach(function (k) { if (q.get(k)) keep.push(k + '=' + encodeURIComponent(q.get(k))); });
+    } catch (e) { /* ignore */ }
+    return file + (keep.length ? '?' + keep.join('&') : '');
+  }
+
+  /** ตั้ง href ให้ทุก <a data-href="..."> ใน root */
+  function wireLinks(root) {
+    Array.prototype.forEach.call((root || document).querySelectorAll('a[data-href]'), function (a) {
+      a.setAttribute('href', pageHref(a.getAttribute('data-href')));
+    });
+  }
+
   TL.ui = TL.ui || {};
+  TL.ui.masthead = masthead;
+  TL.ui.pageHref = pageHref;
+  TL.ui.wireLinks = wireLinks;
   TL.ui.menuBoard = menuBoard;
   TL.ui.previewTotal = previewTotal;
   TL.ui.orderBar = orderBar;
