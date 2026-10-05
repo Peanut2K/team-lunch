@@ -18,7 +18,8 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { chromium } = require('playwright');
 
-const WEB = path.join(__dirname, '..', 'web', 'index.html');
+// tick 6: FE-2 ย้ายหน้ารวม component ไป web/kit.html (index.html เป็นหน้าสั่งอาหาร — ตรวจใน qa/fe-2.test.js)
+const WEB = path.join(__dirname, '..', 'web', 'kit.html');
 const FILE_URL = 'file://' + WEB;
 const SHOTS = path.join(__dirname, 'screenshots');
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -855,14 +856,15 @@ test('R1 หน้าเว็บผ่าน backend จริง (?api=real �
       }
     }
     // หน้าเว็บเสิร์ฟผ่าน backend ใช้ API จริง
-    await page.goto(base + '/');
+    await page.goto(base + '/kit.html');
     await page.waitForSelector('#board .dish');
     assert.equal(await page.locator('#store').textContent(), 'ร้านป้าแดง');
     assert.equal(await page.locator('#mode-chip').isHidden(), true);
     assert.equal(await page.getAttribute('#cutoff', 'data-state'), 'open');
     await page.screenshot({ path: path.join(SHOTS, 'fe-1-1280-real-api.png'), fullPage: false });
-    // endpoint ที่ BE ยังไม่ทำ (summary/orders) → 404 จาก API จริง ไม่ใช่ความผิดของ FE-1
-    const relevant = errors.filter((e) => !/404 \(Not Found\)/.test(e));
+    // D16: ไม่นับ "Failed to load resource ... 4xx" ที่เบราว์เซอร์พิมพ์เองเมื่อ API ตอบ 4xx ตาม contract
+    //   (kit.js ยิง PUT ผิดรูปแบบเพื่อโชว์ตัวอย่าง VALIDATION → 400 จาก API จริง)
+    const relevant = errors.filter((e) => !/Failed to load resource: the server responded with a status of 4\d\d/.test(e));
     assert.deepEqual(relevant, []);
   } finally { await ctx.close(); child.kill(); }
 });
