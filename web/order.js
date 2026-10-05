@@ -1,0 +1,394 @@
+/* ข้าวเที่ยงทีม — หน้าสั่งอาหาร (FE-2 · PRD F2–F6, F8)
+ *
+ * เรียก API ผ่าน TL.api เท่านั้น (D5) — สลับ API จริง / server จำลองได้
+ * นับถอยหลังจาก serverNow (D2) · เวลาปิดรับตัดสินที่ server — หน้าเว็บแค่แสดงผล
+ * error จาก API แสดง message ตรงๆ · VALIDATION ที่มี field แสดงข้างช่องนั้น (D11)
+ * ยอดก่อนยืนยันคิดในหน้าเพื่อให้เห็นก่อนกด — ยอดจริงคือ total ที่ API ตอบกลับ
+ */
+(function () {
+  'use strict';
+
+  var TL = window.TL;
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+
+  var state = {
+    round: null,
+    cutoffCtl: null,
+    board: null,
+    bar: null,
+    closed: false,
+    busy: false,
+    order: null,     // order ที่บันทึกแล้วของชื่อในช่อง (จาก API) หรือ null
+    mode: 'edit',    // 'edit' = เลือกเมนู · 'view' = เห็นการ์ด "สั่งแล้ว"
+    lookupSeq: 0     // กันผล GET order เก่ามาทับผลใหม่
+  };
+
+  /* ---------- ชื่อจำไว้ในเครื่อง (F3) ---------- */
+  var NAME_KEY = 'teamlunch.name';
+  function loadName() {
+    try { return window.localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; }
+  }
+  function rememberName(name) {
+    try { window.localStorage.setItem(NAME_KEY, name); } catch (e) { /* ใช้ไม่ได้ก็ไม่เป็นไร */ }
+  }
+
+  /* ---------- โหมด: เลือกเมนู / ดู order ที่สั่งแล้ว ---------- */
+  function setMode(mode) {
+    state.mode = mode;
+    var viewing = mode === 'view' && !!state.order;
+    $('#order').hidden = viewing;
+    $('#orderbar').hidden = viewing;
+    $('#order-done').hidden = !viewing;
+    // แก้ order ที่มีอยู่ → หัวข้อบอกชัด + มีทางกลับไปการ์ดเดิม
+    var editingExisting = !viewing && !!state.order;
+    $('#order-title').textContent = editingExisting ? 'แก้ order ของ ' + state.order.name : 'เลือกเมนู';
+    $('#edit-cancel').hidden = !editingExisting;
+    if (viewing) renderDone();
+    refreshBar();
+  }
+
+  function renderDone() {
+    var el = $('#order-done');
+    TL.ui.orderDone(el, state.order, state.round.items, {
+      disabled: state.closed,
+      onEdit: startEdit,
+      onCancel: askCancel
+    });
+  }
+
+  /* ---------- ยกเลิก order (F5) — ถามยืนยันในการ์ดก่อน กันนิ้วโป้งพลาด ---------- */
+  function askCancel() {
+    if (!state.order || state.closed) return;
+    var actions = $('#order-done .done__actions');
+    actions.innerHTML =
+      '<p class="done__confirm" id="cancel-q">ยกเลิก order ของ ' + TL.escapeHtml(state.order.name) + ' ใช่ไหม</p>' +
+      '<button type="button" class="btn btn--secondary" data-act="cancel-yes" aria-describedby="cancel-q">ยกเลิก order</button>' +
+      '<button type="button" class="btn btn--quiet" data-act="cancel-no">ไม่ยกเลิก</button>';
+    var yes = actions.querySelector('[data-act="cancel-yes"]');
+    actions.querySelector('[data-act="cancel-no"]').addEventListener('click', function () {
+      renderDone();
+      var b = $('#order-done [data-act="cancel"]');
+      if (b) b.focus();
+    });
+    yes.addEventListener('click', function () { doCancel(yes); });
+    yes.focus();
+  }
+
+  function doCancel(btn) {
+    if (state.busy || !state.order) return;
+    state.busy = true;
+    btn.disabled = true;
+    btn.textContent = 'กำลังยกเลิก…';
+    var order = state.order;
+    TL.ui.notice($('#order-notice'), '');
+    state.lookupSeq++;
+    TL.api.deleteOrder(state.round.id, order.name).then(function () {
+      state.order = null;
+      clearPicks();
+      setMode('edit');
+      TL.ui.notice($('#order-notice'), 'ยกเลิก order ของ ' + order.name + ' แล้ว', 'info');
+      $('#order-notice').scrollIntoView({ block: 'nearest' });
+      $('#name').focus({ preventScroll: true });
+    }, function (err) {
+      if (err.code === 'NOT_FOUND' && state.round) {
+        // order ถูกยกเลิกไปแล้ว (เช่นจากเครื่องอื่น) — แสดง message จาก API แล้วกลับไปเลือกเมนู
+        state.order = null;
+        clearPicks();
+        setMode('edit');
+      } else {
+        renderDone();
+      }
+      showApiError(err);
+    }).then(function () {
+      state.busy = false;
+      refreshBar();
+    });
+  }
+
+  /** เติมเมนู + หมายเหตุจาก order เดิม แล้วสลับไปโหมดแก้ */
+  function startEdit() {
+    if (!state.order || state.closed) return;
+    var map = {};
+    state.order.lines.forEach(function (ln) { map[ln.itemId] = ln.qty; });
+    state.board.setQty(map);
+    $('#note').value = state.order.note || '';
+    setMode('edit');
+    var first = $('#board .stepper__btn:not([disabled])');
+    $('#order').scrollIntoView({ block: 'start' });
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function clearPicks() {
+    state.board.setQty({});
+    $('#note').value = '';
+  }
+
+  /**
+   * ดู order ของชื่อนี้ (D12) — มีแล้ว: โชว์การ์ด "สั่งแล้ว" · ยังไม่สั่ง (404): กลับไปเลือกเมนู
+   * ถ้าผู้ใช้เลือกเมนูค้างไว้แล้วชื่อนี้มี order อยู่ → คงที่เลือกไว้ และบอกว่ากดยืนยันจะแทนที่ (F4)
+   */
+  function lookup() {
+    var name = $('#name').value.trim();
+    var seq = ++state.lookupSeq;
+    var wasViewing = state.mode === 'view';
+    if (!name) {
+      state.order = null;
+      if (wasViewing) clearPicks();
+      setMode('edit');
+      return Promise.resolve(null);
+    }
+    if (state.order && sameName(state.order.name, name)) return Promise.resolve(state.order);
+    return TL.api.getOrder(state.round.id, name).then(function (order) {
+      if (seq !== state.lookupSeq) return null;
+      state.order = order;
+      rememberName(order.name);
+      var hasPicks = state.board.getLines().length > 0;
+      if (!wasViewing && hasPicks && !state.closed) {
+        setMode('edit');
+        TL.ui.notice($('#order-notice'), 'ชื่อ ' + order.name + ' สั่งไว้แล้ว กดยืนยันอีกครั้งจะแทนที่ order เดิม', 'info');
+      } else {
+        TL.ui.notice($('#order-notice'), '');
+        setMode('view');
+      }
+      return order;
+    }, function (err) {
+      if (seq !== state.lookupSeq) return null;
+      state.order = null;
+      if (wasViewing) clearPicks();
+      setMode('edit');
+      // 404 = ชื่อนี้ยังไม่ได้สั่ง เป็นเรื่องปกติ ไม่ต้องเตือน
+      if (err.code !== 'NOT_FOUND') TL.ui.notice($('#order-notice'), err.message, 'error');
+      return null;
+    });
+  }
+
+  /* ---------- error ข้างช่อง (D11) ---------- */
+  // field จาก API → [ช่องที่ผิด, ที่แสดงข้อความ]
+  function fieldTarget(field) {
+    if (field === 'name') return { input: $('#name'), msg: $('#name-error') };
+    if (field === 'note') return { input: $('#note'), msg: $('#note-error') };
+    if (typeof field === 'string' && field.indexOf('lines') === 0) {
+      return { input: null, msg: $('#lines-error'), focus: $('#board .stepper__btn:not([disabled])') };
+    }
+    return null; // field: null (ทั้งก้อนผิด) หรือไม่รู้จัก → แสดงเป็นข้อความรวม
+  }
+
+  function clearFieldErrors() {
+    ['#name-error', '#note-error', '#lines-error'].forEach(function (sel) {
+      var el = $(sel);
+      el.hidden = true;
+      el.textContent = '';
+      el.removeAttribute('role');
+    });
+    ['#name', '#note'].forEach(function (sel) {
+      $(sel).removeAttribute('aria-invalid');
+      $(sel).removeAttribute('aria-describedby');
+    });
+  }
+
+  /** แก้ช่องแล้วซ่อน error ของช่องนั้น */
+  function hideError(sel, input) {
+    var el = $(sel);
+    if (el.hidden) return;
+    el.hidden = true;
+    el.textContent = '';
+    el.removeAttribute('role');
+    if (input) { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }
+  }
+
+  function showFieldError(t, message) {
+    t.msg.innerHTML = TL.icons.alert(16) + '<span>' + TL.escapeHtml(message) + '</span>';
+    t.msg.setAttribute('role', 'alert');
+    t.msg.hidden = false;
+    var focusEl = t.input || t.focus;
+    if (t.input) {
+      t.input.setAttribute('aria-invalid', 'true');
+      t.input.setAttribute('aria-describedby', t.msg.id);
+    }
+    if (focusEl) {
+      focusEl.focus({ preventScroll: true });
+      (t.input || t.msg).scrollIntoView({ block: 'center' });
+    }
+  }
+
+  /** แสดง error จาก API — message ตรงๆ เสมอ */
+  function showApiError(err) {
+    var box = $('#order-notice');
+    if (err.code === 'VALIDATION') {
+      var t = fieldTarget(err.field);
+      if (t) { TL.ui.notice(box, ''); showFieldError(t, err.message); return; }
+    }
+    if (err.code === 'ROUND_CLOSED') {
+      // ปิดรับตามเวลา server แล้ว (แม้หน้ายังนับไม่ถึง) → notice แบบปิดรับ ไม่ใช่ error ทั่วไป (F6)
+      TL.ui.notice(box, err.message, 'closed');
+      refreshRound();
+    } else {
+      TL.ui.notice(box, err.message, 'error');
+    }
+    box.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* ---------- สั่ง / แทนที่ (F3, F4) ---------- */
+  function submitOrder() {
+    if (state.busy || state.closed || state.mode !== 'edit') return;
+    state.busy = true;
+    refreshBar();
+    clearFieldErrors();
+    TL.ui.notice($('#order-notice'), '');
+    state.lookupSeq++; // ผลของ GET ที่ค้างอยู่ไม่ต้องใช้แล้ว
+    TL.api.putOrder(state.round.id, {
+      name: $('#name').value,
+      lines: state.board.getLines(),
+      note: $('#note').value
+    }).then(function (order) {
+      state.order = order;
+      $('#name').value = order.name; // ชื่อตามที่ server เก็บ (ตัดช่องว่างแล้ว)
+      rememberName(order.name);
+      setMode('view');
+      var done = $('#order-done');
+      done.scrollIntoView({ block: 'start' });
+      done.focus({ preventScroll: true });
+    }, showApiError).then(function () {
+      state.busy = false;
+      refreshBar();
+    });
+  }
+
+  /** เทียบชื่อแบบเดียวกับ key ของ BE (ตัดช่องว่าง + ไม่สนตัวพิมพ์, D3) — ใช้แค่เลี่ยงยิง GET ซ้ำ */
+  function sameName(a, b) {
+    return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  }
+
+  /* ---------- หัวหน้า ---------- */
+  function renderMasthead() {
+    $('#brand').innerHTML = TL.icons.bowl(20) + '<span>ข้าวเที่ยงทีม</span>';
+    var chip = $('#mode-chip');
+    if (TL.api.mode === 'mock') {
+      chip.textContent = 'server จำลอง';
+      chip.title = 'ข้อมูลในหน้านี้มาจาก server จำลองในเครื่องนี้';
+      chip.hidden = false;
+    }
+  }
+
+  /* ---------- รอบวันนี้ + นับถอยหลัง ---------- */
+  function renderRoundHead(round) {
+    $('#store').textContent = round.restaurant;
+    $('#round-date').textContent = TL.fmt.thaiDate(round.date);
+    state.cutoffCtl = TL.ui.cutoff($('#cutoff'), round, {
+      onState: function (s) { setClosed(s === 'closed'); },
+      // ถึงเวลาปิดตามนาฬิกา server ที่นับในหน้า → ถาม server ยืนยันอีกครั้ง (ไม่ reload)
+      onClose: refreshRound
+    });
+  }
+
+  /** ขอรอบวันนี้ใหม่ — ได้ status + serverNow ล่าสุด (api.js sync นาฬิกาให้เอง) */
+  function refreshRound() {
+    if (!state.round) return Promise.resolve(null);
+    return TL.api.getToday().then(function (r) {
+      if (r.id !== state.round.id) return r; // ข้ามวันแล้ว — คงหน้าเดิมไว้ ผู้ใช้ reload เอง
+      state.round = r;
+      state.cutoffCtl.update(r);
+      return r;
+    }, function () { return null; /* คงสถานะเดิมไว้ */ });
+  }
+
+  function setClosed(closed) {
+    state.closed = closed;
+    if (state.board) state.board.setDisabled(closed);
+    $('#note').disabled = closed;
+    if (closed && state.order && state.mode === 'edit' && $('#order')) {
+      // ปิดรับระหว่างแก้: ที่แก้ค้างไว้ส่งไม่ได้แล้ว → กลับไปโชว์ order ที่บันทึกไว้จริง
+      TL.ui.notice($('#order-notice'), '');
+      setMode('view');
+    } else if (state.mode === 'view' && state.order) {
+      // การ์ด "สั่งแล้ว": ปุ่มแก้ / ยกเลิกใช้ไม่ได้หลังปิดรับ (F5)
+      renderDone();
+    }
+    if (closed) $('#edit-cancel').hidden = true;
+    refreshBar();
+  }
+
+  /* ---------- กลับมาที่แท็บ: ขอเวลา server ใหม่ (D2) ----------
+   * มือถือพักหน้าจอแล้วตัวนับในหน้าอาจคลาด → ถาม server ใหม่ทุกครั้งที่หน้ากลับมาให้เห็น
+   */
+  function watchVisibility() {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refreshRound();
+    });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) refreshRound(); });
+  }
+
+  /* ---------- แถบยอด ---------- */
+  function refreshBar() {
+    if (!state.bar || !state.round) return;
+    var p = TL.ui.previewTotal(state.round.items, state.board ? state.board.getQty() : {});
+    state.bar.set({
+      dishes: p.dishes,
+      total: p.total,
+      busy: state.busy,
+      disabled: state.closed,
+      label: state.closed ? 'ปิดรับแล้ว' : state.order ? 'บันทึกการแก้ไข' : 'ยืนยันสั่ง'
+    });
+  }
+
+  function setupOrdering(round) {
+    $('#ordering').hidden = false;
+    $('#order').hidden = false;
+    state.board = TL.ui.menuBoard($('#board'), round.items, {
+      disabled: round.status === 'closed',
+      onChange: function () {
+        hideError('#lines-error');
+        refreshBar();
+      }
+    });
+    $('#orderbar').hidden = false;
+    state.bar = TL.ui.orderBar($('#orderbar'), { onConfirm: submitOrder });
+    $('#order-form').addEventListener('submit', function (e) { e.preventDefault(); submitOrder(); });
+    setClosed(state.closed || round.status === 'closed');
+
+    var nameInput = $('#name');
+    nameInput.value = loadName();
+    nameInput.addEventListener('change', lookup);
+    nameInput.addEventListener('input', function () { hideError('#name-error', nameInput); });
+    $('#note').addEventListener('input', function () { hideError('#note-error', $('#note')); });
+    nameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); lookup(); }
+    });
+    $('#edit-cancel').addEventListener('click', function () {
+      TL.ui.notice($('#order-notice'), '');
+      setMode('view');
+      $('#order-done').focus();
+    });
+    setMode('edit');
+    if (nameInput.value.trim()) lookup();
+  }
+
+  /* ---------- ไม่มีรอบ / โหลดไม่ได้ ---------- */
+  function showNoRound(err) {
+    $('#store').textContent = 'ข้าวเที่ยงทีม';
+    var box = $('#no-round');
+    box.hidden = false;
+    if (err.code === 'NO_ROUND') {
+      TL.ui.emptyState(box, {
+        title: err.message, // message จาก API ตรงๆ
+        body: 'รอคนรับสั่งเปิดรอบ แล้วเปิดหน้านี้ใหม่อีกครั้ง'
+      });
+    } else {
+      TL.ui.notice(box, err.message, 'error');
+    }
+  }
+
+  /* ---------- เริ่ม ---------- */
+  function init() {
+    renderMasthead();
+    TL.api.getToday().then(function (round) {
+      state.round = round;
+      renderRoundHead(round);
+      setupOrdering(round);
+      watchVisibility();
+    }, showNoRound);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
