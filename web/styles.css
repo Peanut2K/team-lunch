@@ -517,6 +517,25 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   gap: var(--s-4);
 }
 
+/* ---------- หน้าสั่งอาหาร (FE-2) ---------- */
+.section-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.order-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  min-height: var(--tap);
+}
+.field__input:disabled {
+  cursor: not-allowed;
+  background: var(--closed-soft);
+  border-color: var(--line);
+  color: var(--closed);
+}
+
 /* ---------- แถบยอด (ติดล่างจอ) ---------- */
 .orderbar {
   position: fixed;
