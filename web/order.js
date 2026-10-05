@@ -113,6 +113,98 @@
     });
   }
 
+  /* ---------- error ข้างช่อง (D11) ---------- */
+  // field จาก API → [ช่องที่ผิด, ที่แสดงข้อความ]
+  function fieldTarget(field) {
+    if (field === 'name') return { input: $('#name'), msg: $('#name-error') };
+    if (field === 'note') return { input: $('#note'), msg: $('#note-error') };
+    if (typeof field === 'string' && field.indexOf('lines') === 0) {
+      return { input: null, msg: $('#lines-error'), focus: $('#board .stepper__btn:not([disabled])') };
+    }
+    return null; // field: null (ทั้งก้อนผิด) หรือไม่รู้จัก → แสดงเป็นข้อความรวม
+  }
+
+  function clearFieldErrors() {
+    ['#name-error', '#note-error', '#lines-error'].forEach(function (sel) {
+      var el = $(sel);
+      el.hidden = true;
+      el.textContent = '';
+      el.removeAttribute('role');
+    });
+    ['#name', '#note'].forEach(function (sel) {
+      $(sel).removeAttribute('aria-invalid');
+      $(sel).removeAttribute('aria-describedby');
+    });
+  }
+
+  /** แก้ช่องแล้วซ่อน error ของช่องนั้น */
+  function hideError(sel, input) {
+    var el = $(sel);
+    if (el.hidden) return;
+    el.hidden = true;
+    el.textContent = '';
+    el.removeAttribute('role');
+    if (input) { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }
+  }
+
+  function showFieldError(t, message) {
+    t.msg.innerHTML = TL.icons.alert(16) + '<span>' + TL.escapeHtml(message) + '</span>';
+    t.msg.setAttribute('role', 'alert');
+    t.msg.hidden = false;
+    var focusEl = t.input || t.focus;
+    if (t.input) {
+      t.input.setAttribute('aria-invalid', 'true');
+      t.input.setAttribute('aria-describedby', t.msg.id);
+    }
+    if (focusEl) {
+      focusEl.focus({ preventScroll: true });
+      (t.input || t.msg).scrollIntoView({ block: 'center' });
+    }
+  }
+
+  /** แสดง error จาก API — message ตรงๆ เสมอ */
+  function showApiError(err) {
+    var box = $('#order-notice');
+    if (err.code === 'VALIDATION') {
+      var t = fieldTarget(err.field);
+      if (t) { TL.ui.notice(box, ''); showFieldError(t, err.message); return; }
+    }
+    if (err.code === 'ROUND_CLOSED') {
+      // ปิดรับตามเวลา server แล้ว (แม้หน้ายังนับไม่ถึง) → notice แบบปิดรับ ไม่ใช่ error ทั่วไป (F6)
+      TL.ui.notice(box, err.message, 'closed');
+      refreshRound();
+    } else {
+      TL.ui.notice(box, err.message, 'error');
+    }
+    box.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* ---------- สั่ง / แทนที่ (F3, F4) ---------- */
+  function submitOrder() {
+    if (state.busy || state.closed || state.mode !== 'edit') return;
+    state.busy = true;
+    refreshBar();
+    clearFieldErrors();
+    TL.ui.notice($('#order-notice'), '');
+    state.lookupSeq++; // ผลของ GET ที่ค้างอยู่ไม่ต้องใช้แล้ว
+    TL.api.putOrder(state.round.id, {
+      name: $('#name').value,
+      lines: state.board.getLines(),
+      note: $('#note').value
+    }).then(function (order) {
+      state.order = order;
+      $('#name').value = order.name; // ชื่อตามที่ server เก็บ (ตัดช่องว่างแล้ว)
+      rememberName(order.name);
+      setMode('view');
+      var done = $('#order-done');
+      done.scrollIntoView({ block: 'start' });
+      done.focus({ preventScroll: true });
+    }, showApiError).then(function () {
+      state.busy = false;
+      refreshBar();
+    });
+  }
+
   /** เทียบชื่อแบบเดียวกับ key ของ BE (ตัดช่องว่าง + ไม่สนตัวพิมพ์, D3) — ใช้แค่เลี่ยงยิง GET ซ้ำ */
   function sameName(a, b) {
     return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
@@ -169,7 +261,7 @@
       total: p.total,
       busy: state.busy,
       disabled: state.closed,
-      label: state.closed ? 'ปิดรับแล้ว' : 'ยืนยันสั่ง'
+      label: state.closed ? 'ปิดรับแล้ว' : state.order ? 'บันทึกการแก้ไข' : 'ยืนยันสั่ง'
     });
   }
 
@@ -178,15 +270,21 @@
     $('#order').hidden = false;
     state.board = TL.ui.menuBoard($('#board'), round.items, {
       disabled: round.status === 'closed',
-      onChange: refreshBar
+      onChange: function () {
+        hideError('#lines-error');
+        refreshBar();
+      }
     });
     $('#orderbar').hidden = false;
-    state.bar = TL.ui.orderBar($('#orderbar'), { onConfirm: function () {} });
+    state.bar = TL.ui.orderBar($('#orderbar'), { onConfirm: submitOrder });
+    $('#order-form').addEventListener('submit', function (e) { e.preventDefault(); submitOrder(); });
     setClosed(state.closed || round.status === 'closed');
 
     var nameInput = $('#name');
     nameInput.value = loadName();
     nameInput.addEventListener('change', lookup);
+    nameInput.addEventListener('input', function () { hideError('#name-error', nameInput); });
+    $('#note').addEventListener('input', function () { hideError('#note-error', $('#note')); });
     nameInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); lookup(); }
     });
