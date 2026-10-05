@@ -21,6 +21,12 @@ class ApiError extends Error {
 const validation = (field, message) => new ApiError(400, 'VALIDATION', message, field);
 const notFound = (message = 'ไม่พบข้อมูลที่ต้องการ') => new ApiError(404, 'NOT_FOUND', message);
 
+/** body ของ request ที่ parse แล้ว — throw VALIDATION (field null) ถ้า body ไม่ใช่ JSON (ดู app.js) */
+function readBody(req) {
+  if (req.bodyError) throw req.bodyError;
+  return req.body;
+}
+
 function sendError(res, status, code, message, field) {
   const error = code === 'VALIDATION'
     ? { code, field: field === undefined ? null : field, message }
@@ -50,4 +56,4 @@ function errorHandler(err, req, res, next) {
   return sendError(res, 500, 'INTERNAL', 'เกิดข้อผิดพลาดในระบบ ลองใหม่อีกครั้ง');
 }
 
-module.exports = { ApiError, validation, notFound, sendError, apiNotFoundHandler, errorHandler };
+module.exports = { ApiError, validation, notFound, readBody, sendError, apiNotFoundHandler, errorHandler };
