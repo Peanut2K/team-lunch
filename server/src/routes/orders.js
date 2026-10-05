@@ -2,8 +2,8 @@
 
 const express = require('express');
 const { toBangkokISO } = require('../clock');
-const { notFound, readBody } = require('../errors');
-const { validateOrder } = require('../validate-order');
+const { notFound, readBody, validation } = require('../errors');
+const { validateOrder, validatePersonName } = require('../validate-order');
 
 const roundNotFound = () => notFound('ไม่พบรอบสั่งนี้');
 
@@ -66,6 +66,20 @@ function ordersRouter({ repo, ordersRepo, now }) {
     const order = name === null ? null : ordersRepo.findByName(round.id, name);
     if (!order) throw notFound('ชื่อนี้ยังไม่ได้สั่งในรอบนี้');
     res.json(toOrderJson(order));
+  });
+
+  // F5 · ยกเลิก order ของชื่อนี้ → 204
+  // ลำดับ (D9): NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path, field "name") → ROUND_CLOSED (BE-24)
+  //             → NOT_FOUND (ชื่อนี้ไม่มี order)
+  router.delete(NAME_PATH, (req, res) => {
+    const round = repo.findById(req.params.id);
+    if (!round) throw roundNotFound();
+    const raw = decodeName(req);
+    if (raw === null) throw validation('name', 'ชื่อใน URL ไม่ถูกต้อง (ต้อง URL-encode)');
+    const name = validatePersonName(raw);
+    // BE-24: ตรวจ ROUND_CLOSED ตรงนี้ (หลัง VALIDATION ก่อนหา order ตาม D9)
+    if (!ordersRepo.deleteByName(round.id, name)) throw notFound('ไม่พบ order ของชื่อนี้');
+    res.status(204).end();
   });
 
   return router;
