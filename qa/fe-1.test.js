@@ -436,6 +436,30 @@ test('M7 ส่งพร้อมกัน: PUT 10 request ชื่อเดี
   } finally { await ctx.close(); }
 });
 
+test('M8 tick 3: DELETE ตาม D9 (ยกเลิก: NOT_FOUND → VALIDATION → ROUND_CLOSED) · GET order ชื่อผิดรูปแบบ = 404 · ตัดช่องว่าง note', async () => {
+  const { ctx, page } = await openPage({ query: '?mock=empty' });
+  try {
+    await page.evaluate(() => window.TL.mock.setLatency(0));
+    await pinMock(page, at('09:00:00'));
+    const round = (await mock(page, 'POST', '/api/rounds', { restaurant: 'ร้าน', cutoffAt: at('11:00:00'), items: MENU })).body;
+    const url = `/api/rounds/${round.id}/orders`;
+    const o = await mock(page, 'PUT', url, { name: 'Hi', lines: [{ itemId: round.items[0].id, qty: 1 }], note: '  ไม่เผ็ด  ' });
+    assert.equal(o.body.note, 'ไม่เผ็ด');
+    // D9: ไม่มีรอบมาก่อน VALIDATION ของชื่อใน path
+    assertError(await mock(page, 'DELETE', `/api/rounds/r_nope/orders/${'ก'.repeat(41)}`), 404, 'NOT_FOUND', 'DELETE ไม่มีรอบ + ชื่อยาว');
+    // ชื่อผิดรูปแบบ (ว่าง / 41 ตัว) → VALIDATION field name (D9 + D11)
+    assertError(await mock(page, 'DELETE', `${url}/${encodeURIComponent('  ')}`), 400, 'VALIDATION', 'DELETE ชื่อว่าง', 'name');
+    assertError(await mock(page, 'DELETE', `${url}/${encodeURIComponent('ก'.repeat(41))}`), 400, 'VALIDATION', 'DELETE ชื่อ 41', 'name');
+    // D12 contract มีแค่ 404
+    assertError(await mock(page, 'GET', `${url}/${encodeURIComponent(' ')}`), 404, 'NOT_FOUND', 'GET ชื่อว่าง');
+    assertError(await mock(page, 'DELETE', `${url}/nobody`), 404, 'NOT_FOUND', 'DELETE ชื่อที่ไม่ได้สั่ง');
+    await pinMock(page, at('11:00:01'));
+    assertError(await mock(page, 'DELETE', `${url}/HI`), 409, 'ROUND_CLOSED', 'DELETE หลังปิด');
+    assertError(await mock(page, 'DELETE', `${url}/${encodeURIComponent('  ')}`), 400, 'VALIDATION', 'D9 ปิดแล้ว + ชื่อว่าง → VALIDATION ก่อน', 'name');
+    assert.equal((await mock(page, 'GET', `${url}/hi`)).status, 200, 'order ยังอยู่หลังปิด');
+  } finally { await ctx.close(); }
+});
+
 // ───────────────────────── ส่วน U: หน้าเว็บ ─────────────────────────
 
 const VIEWPORTS = [{ w: 360, h: 780 }, { w: 1280, h: 900 }];
