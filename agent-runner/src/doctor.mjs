@@ -6,13 +6,26 @@ import { TokenStore } from "./linear.mjs";
 
 const isWin = process.platform === "win32";
 
+let lastError = {};
 function version(cmd, args = ["--version"]) {
   return new Promise((resolve) => {
     execFile(cmd, args, { shell: isWin, timeout: 15_000, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) return resolve(null);
+      if (err) {
+        lastError[cmd] = (stderr || err.message || "").trim().split(/\r?\n/)[0];
+        return resolve(null);
+      }
       resolve((stdout || stderr).trim().split(/\r?\n/)[0]);
     });
   });
+}
+
+/** Explain a missing tool: is it on this process's PATH at all? */
+async function whyMissing(cmd) {
+  const where = await new Promise((resolve) =>
+    execFile(isWin ? "where" : "which", [cmd], { windowsHide: true }, (err, stdout) => resolve(err ? "" : stdout.trim().split(/\r?\n/)[0])),
+  );
+  if (where) return `เจอที่ ${where} แต่รันไม่ผ่าน: ${lastError[cmd] || "?"}`;
+  return "ไม่อยู่ใน PATH ของหน้าต่างนี้ (ถ้าเพิ่งติดตั้ง ให้ปิด PowerShell แล้วเปิดใหม่)";
 }
 
 export async function runDoctor(config = loadConfig(), out = console.log) {
@@ -21,14 +34,16 @@ export async function runDoctor(config = loadConfig(), out = console.log) {
 
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   check(nodeMajor >= 22, "node", process.versions.node, "ติดตั้ง Node 22+");
-  const git = await version("git");
-  check(Boolean(git), "git", git || "ไม่พบ", "winget install Git.Git");
-  const claude = await version(config.claudeBin);
-  check(Boolean(claude), "claude", claude || "ไม่พบ", "npm install -g @anthropic-ai/claude-code แล้วรัน claude เพื่อ login");
-  const gh = await version("gh");
-  check(Boolean(gh), "gh", gh || "ไม่พบ", "winget install GitHub.cli แล้ว gh auth login");
-  const ngrok = await version("ngrok", ["version"]);
-  check(Boolean(ngrok), "ngrok", ngrok || "ไม่พบ", "winget install ngrok.ngrok");
+  const tools = [
+    ["git", ["--version"], "winget install Git.Git"],
+    [config.claudeBin, ["--version"], "npm install -g @anthropic-ai/claude-code แล้วรัน claude เพื่อ login"],
+    ["gh", ["--version"], "winget install GitHub.cli แล้ว gh auth login"],
+    ["ngrok", ["version"], "winget install ngrok.ngrok"],
+  ];
+  for (const [cmd, args, fix] of tools) {
+    const v = await version(cmd, args);
+    check(Boolean(v), cmd === config.claudeBin ? "claude" : cmd, v || (await whyMissing(cmd)), fix);
+  }
 
   check(Boolean(config.publicUrl), "PUBLIC_URL", config.publicUrl || "ยังไม่ตั้ง", "ใส่ใน .env");
   check(Boolean(config.repoDir && existsSync(config.repoDir)), "REPO_DIR", config.repoDir || "ยังไม่ตั้ง", "path ของ repo ที่ clone ไว้");
