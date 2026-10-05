@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { bangkokDate } = require('../clock');
-const { ApiError, readBody } = require('../errors');
+const { ApiError, notFound, readBody } = require('../errors');
 const { isUniqueViolation } = require('../db');
 const { validateNewRound } = require('../validate-round');
 const { toRoundJson } = require('../round-view');
@@ -12,13 +12,21 @@ const roundExists = () => new ApiError(409, 'ROUND_EXISTS', 'วันนี้�
 
 /**
  * @param {{repo: ReturnType<import('../rounds-repo').createRoundsRepo>,
- *   ordersRepo: ReturnType<import('../orders-repo').createOrdersRepo>, now: () => Date}} deps
+ *   ordersRepo: ReturnType<import('../orders-repo').createOrdersRepo>,
+ *   summaryRepo: ReturnType<import('../summary').createSummaryRepo>, now: () => Date}} deps
  */
-function roundsRouter({ repo, ordersRepo, now }) {
+function roundsRouter({ repo, ordersRepo, summaryRepo, now }) {
   const router = express.Router();
 
   // F3–F5 · order ของรอบ (PUT / GET / DELETE)
   router.use('/:id/orders', ordersRouter({ repo, ordersRepo, now }));
+
+  // F7 · สรุปยอด — ดูได้ทั้งตอนเปิดและหลังปิดรับ · ไม่มีรอบ → 404 NOT_FOUND
+  router.get('/:id/summary', (req, res) => {
+    const round = repo.findById(req.params.id);
+    if (!round) throw notFound('ไม่พบรอบสั่งนี้');
+    res.json(summaryRepo.forRound(round));
+  });
 
   // F1 · เปิดรอบสั่งวันนี้
   router.post('/', (req, res) => {
