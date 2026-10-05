@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { bangkokDate } = require('../clock');
-const { ApiError } = require('../errors');
+const { ApiError, readBody } = require('../errors');
 const { isUniqueViolation } = require('../db');
 const { validateNewRound } = require('../validate-round');
 const { toRoundJson } = require('../round-view');
@@ -18,7 +18,7 @@ function roundsRouter({ repo, now }) {
   // F1 · เปิดรอบสั่งวันนี้
   router.post('/', (req, res) => {
     const current = now();
-    const input = validateNewRound(req.body, current);
+    const input = validateNewRound(readBody(req), current);
     const date = bangkokDate(current);
 
     if (repo.findByDate(date)) throw roundExists();
