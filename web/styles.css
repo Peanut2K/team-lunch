@@ -121,6 +121,9 @@ html {
 
 body {
   margin: 0;
+  /* F8: ค่ายาวไม่มีช่องว่างตาม D8 (เมนู 60 · ชื่อ 40 · หมายเหตุ 100 ตัว) ต้องตัดบรรทัดในกรอบ
+     ไม่ดันหน้าให้ scroll แนวนอน · สืบทอดไปทุก element (ภาษาไทยปกติยังตัดตามคำเหมือนเดิม) */
+  overflow-wrap: anywhere;
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--bg);
@@ -529,6 +532,8 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   gap: var(--s-3);
   min-height: var(--tap);
 }
+#order-title { min-width: 0; }
+#edit-cancel { flex-shrink: 0; }
 .done__confirm {
   flex-basis: 100%;
   font-weight: 600;
@@ -583,7 +588,8 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   font-weight: 500;
   line-height: 1.5;
 }
-.notice__icon { padding-top: 1px; }
+.notice__icon { padding-top: 1px; flex-shrink: 0; }
+.notice__text { min-width: 0; }
 .notice--error { background: var(--accent-soft); color: var(--ink); }
 .notice--error .notice__icon { color: var(--accent); }
 .notice--closed { background: var(--closed-soft); color: var(--ink); }
@@ -622,6 +628,8 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   border-radius: var(--r-panel);
 }
 .done__head { display: flex; align-items: center; gap: var(--s-3); }
+.done__head > div { min-width: 0; }
+.done__badge { flex-shrink: 0; }
 .done__badge {
   display: grid;
   place-items: center;
@@ -641,6 +649,8 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   padding: 6px 0;
   border-bottom: 1px solid var(--line);
 }
+.done__lines li > span:first-child { min-width: 0; }
+.done__lines .num { flex-shrink: 0; white-space: nowrap; }
 .done__note {
   display: flex;
   gap: var(--s-2);
@@ -648,7 +658,8 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   color: var(--ink-2);
   font-size: var(--fs-sm);
 }
-.done__note svg { margin-top: 3px; }
+.done__note svg { margin-top: 3px; flex-shrink: 0; }
+.done__note span { min-width: 0; }
 .done__total {
   display: flex;
   justify-content: space-between;
@@ -709,11 +720,12 @@ textarea.field__input { min-height: 72px; resize: vertical; }
 .person { padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
 .person:last-child { border-bottom: 0; }
 .person__head { display: flex; justify-content: space-between; gap: var(--s-3); font-weight: 600; }
-.person__name { overflow-wrap: anywhere; }
+.person__name { overflow-wrap: anywhere; min-width: 0; }
 .person__total { white-space: nowrap; }
 .person__lines { color: var(--ink-2); font-size: var(--fs-sm); }
 .person__note { display: flex; gap: 6px; color: var(--ink-2); font-size: var(--fs-sm); }
-.person__note svg { margin-top: 4px; }
+.person__note svg { margin-top: 4px; flex-shrink: 0; }
+.person__note span { min-width: 0; }
 .tally__none { margin-top: var(--s-2); color: var(--ink-2); }
 
 /* ---------- ปุ่มทั้งหมด (kit) ---------- */
