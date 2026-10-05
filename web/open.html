@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fbf4e4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a130f" media="(prefers-color-scheme: dark)">
+  <title>เปิดรอบสั่ง · ข้าวเที่ยงทีม</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    /* ?theme=light|dark บังคับธีม (ไว้ให้ QA ถ่าย screenshot) — ปกติตามเครื่อง */
+    (function () {
+      var t = new URLSearchParams(location.search).get('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">ข้ามไปเนื้อหา</a>
+  <main id="main" class="page page--host" tabindex="-1">
+    <header class="masthead">
+      <p class="masthead__brand" id="brand">ข้าวเที่ยงทีม</p>
+      <span class="mode-chip" id="mode-chip" hidden></span>
+    </header>
+
+    <section class="host-head">
+      <h1 class="host-head__title">เปิดรอบสั่งวันนี้</h1>
+      <p class="host-head__date" id="today-date"></p>
+    </section>
+
+    <!-- วันนี้มีรอบอยู่แล้ว / ROUND_EXISTS → พาไปดูรอบที่มีอยู่ -->
+    <div id="existing" class="existing" hidden></div>
+
+    <div id="form-notice" hidden></div>
+
+    <form id="round-form" class="round-form stack-lg" novalidate>
+      <div class="field">
+        <label class="field__label" for="restaurant">ชื่อร้าน</label>
+        <input class="field__input" id="restaurant" name="restaurant" type="text" autocomplete="off"
+               placeholder="เช่น ข้าวมันไก่ป้าแดง" enterkeyhint="next">
+        <p class="field__error" id="restaurant-error" hidden></p>
+      </div>
+
+      <fieldset class="menu-edit">
+        <legend class="menu-edit__legend">เมนู <span class="field__hint">(ชื่อ + ราคาเป็นบาท อย่างน้อย 1 รายการ)</span></legend>
+        <ol class="menu-edit__rows" id="menu-rows"></ol>
+        <p class="field__error" id="items-error" hidden></p>
+        <button type="button" class="btn btn--secondary menu-edit__add" id="add-item"></button>
+      </fieldset>
+
+      <div class="field cutoff-field">
+        <label class="field__label" for="cutoff-time">เวลาปิดรับ <span class="field__hint">(วันนี้)</span></label>
+        <input class="field__input cutoff-field__input num" id="cutoff-time" name="cutoffTime" type="time" value="11:00" required>
+        <p class="field__error" id="cutoff-error" hidden></p>
+      </div>
+
+      <button type="submit" class="btn btn--primary btn--block" id="open-submit">เปิดรอบสั่ง</button>
+    </form>
+
+    <nav class="host-nav" aria-label="หน้าอื่น">
+      <a class="btn btn--quiet" data-href="summary.html">ดูสรุปยอดวันนี้</a>
+      <a class="btn btn--quiet" data-href="index.html">หน้าสั่งอาหาร</a>
+    </nav>
+  </main>
+
+  <script src="mock-server.js"></script>
+  <script src="api.js"></script>
+  <script src="ui.js"></script>
+  <script src="open.js"></script>
+</body>
+</html>

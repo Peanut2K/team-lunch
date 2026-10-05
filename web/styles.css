@@ -708,3 +708,100 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   .dish__leader { display: none; }
   .dish__price { font-size: var(--fs-md); }
 }
+
+/* ---------- คนรับสั่ง: หน้าเปิดรอบ + หน้าสรุปยอด (FE-3) ---------- */
+/* F8: ค่ายาวไม่มีช่องว่างตาม D8 (ร้าน / เมนู 60 · ชื่อ 40 · หมายเหตุ 100) ต้องตัดบรรทัดในกรอบ ไม่ดันหน้าให้ scroll แนวนอน */
+.page--host { overflow-wrap: anywhere; padding-bottom: var(--s-10); }
+
+.host-head { padding: var(--s-2) 0 var(--s-5); }
+.host-head__title { font-size: var(--fs-xl); }
+.host-head__date { margin-top: 2px; font-size: var(--fs-sm); color: var(--ink-2); }
+
+.host-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+  margin-top: var(--s-8);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.page--host .stack > *,
+.page--host .stack-lg > * { min-width: 0; }
+.page--host .notice + *,
+.page--host .existing + * { margin-top: var(--s-5); }
+.page--host .notice__text, .page--host .notice > p { min-width: 0; }
+
+/* ฟอร์มเปิดรอบ */
+.round-form { margin-top: var(--s-5); }
+.menu-edit { margin: 0; padding: 0; border: 0; min-width: 0; }
+.menu-edit__legend { padding: 0; margin-bottom: var(--s-2); font-size: var(--fs-sm); font-weight: 600; }
+.menu-edit__rows { display: grid; gap: var(--s-3); }
+.menu-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8.5rem var(--tap);
+  align-items: center;
+  gap: var(--s-2);
+}
+.menu-row__name, .menu-row__price { min-width: 0; }
+.menu-row__price { position: relative; }
+.menu-row__price .field__input { padding-left: var(--s-3); padding-right: 2.6rem; text-align: right; }
+.menu-row__unit {
+  position: absolute;
+  right: var(--s-3);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  pointer-events: none;
+}
+.menu-row__remove { width: var(--tap); padding: 0; }
+.menu-row__error { grid-column: 1 / -1; margin-top: 0; }
+.menu-edit__add { margin-top: var(--s-3); }
+.cutoff-field__input { max-width: 13rem; font-size: var(--fs-xl); }
+
+/* วันนี้มีรอบแล้ว */
+.existing {
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  background: var(--surface);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-panel);
+}
+.existing__icon { color: var(--accent); padding-top: 2px; flex-shrink: 0; }
+.existing__body { min-width: 0; flex: 1; }
+.existing__title { font-weight: 600; }
+.existing__meta { color: var(--ink-2); font-size: var(--fs-sm); }
+.existing__actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+.existing__actions .btn--primary { font-size: var(--fs-md); min-height: var(--tap); padding: 0 var(--s-5); }
+
+/* หน้าสรุปยอด */
+.sum-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-3);
+}
+.sum-bar__updated { font-size: var(--fs-sm); color: var(--ink-2); }
+.sum-share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--surface-2);
+  border-radius: var(--r-row);
+}
+.sum-share__text { flex: 1 1 12rem; min-width: 0; font-size: var(--fs-sm); }
+.sum-share__url { font-weight: 600; word-break: break-all; }
+
+/* สรุปยอด (component ใน ui.js): ชื่อ / หมายเหตุยาวต้องไม่ดันตัวเลขออกนอกจอ · จำนวนหลายหลักไม่ล้นคอลัมน์ */
+.tally__item { grid-template-columns: minmax(3.25rem, auto) minmax(0, 1fr) auto; }
+.tally__name, .person__name { min-width: 0; }
+.person__head > .person__total { flex-shrink: 0; }
+.person__lines { overflow-wrap: anywhere; }
+.person__note svg { flex-shrink: 0; }
+.person__note span { min-width: 0; overflow-wrap: anywhere; }
