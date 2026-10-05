@@ -7,6 +7,22 @@ const { validateOrder } = require('../validate-order');
 
 const roundNotFound = () => notFound('ไม่พบรอบสั่งนี้');
 
+/**
+ * path `/<name>` แบบ regex ไม่มี capture group — express จึงไม่ decode ชื่อให้เอง
+ * (ถ้า decode พัง express จะโยน error ก่อนถึง route ทำให้คุมลำดับ D9 ไม่ได้) เราจึง decode เองใน decodeName
+ */
+const NAME_PATH = /^\/[^/]+\/?$/;
+
+/** ชื่อจาก path (URL-encoded) — คืน null ถ้า percent-encoding พัง */
+function decodeName(req) {
+  const raw = req.path.replace(/^\//, '').replace(/\/$/, '');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
 /** แปลง order จาก repo เป็น Order ตาม API contract */
 function toOrderJson(o) {
   return {
@@ -38,6 +54,18 @@ function ordersRouter({ repo, ordersRepo, now }) {
     // BE-24: ตรวจ ROUND_CLOSED ตรงนี้ (หลัง VALIDATION ตาม D9)
     const { order } = ordersRepo.upsert({ roundId: round.id, ...input, at: current.getTime() });
     res.status(200).json(toOrderJson(order));
+  });
+
+  // F3 (D12) · ดู order ของชื่อนี้ — ดูได้ทั้งตอนเปิดและปิดรับ
+  // contract ให้แค่ 404: ไม่มีรอบ หรือชื่อนี้ยังไม่ได้สั่ง — ชื่อที่ผิดรูปแบบ (ว่าง, > 40, encode พัง)
+  // ไม่มีทางมี order จึงตอบ 404 เช่นกัน ไม่ตอบ VALIDATION
+  router.get(NAME_PATH, (req, res) => {
+    const round = repo.findById(req.params.id);
+    if (!round) throw roundNotFound();
+    const name = decodeName(req);
+    const order = name === null ? null : ordersRepo.findByName(round.id, name);
+    if (!order) throw notFound('ชื่อนี้ยังไม่ได้สั่งในรอบนี้');
+    res.json(toOrderJson(order));
   });
 
   return router;
