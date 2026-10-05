@@ -783,9 +783,10 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   align-items: center;
   justify-content: space-between;
   gap: var(--s-2) var(--s-3);
-  margin-bottom: var(--s-3);
+  margin-bottom: var(--s-1);
 }
-.sum-bar__updated { font-size: var(--fs-sm); color: var(--ink-2); }
+.sum-bar__title { font-size: var(--fs-lg); font-weight: 600; }
+.sum-bar__updated { margin-bottom: var(--s-3); font-size: var(--fs-sm); color: var(--ink-2); }
 .sum-share {
   display: flex;
   flex-wrap: wrap;
@@ -796,7 +797,7 @@ textarea.field__input { min-height: 72px; resize: vertical; }
   border-radius: var(--r-row);
 }
 .sum-share__text { flex: 1 1 12rem; min-width: 0; font-size: var(--fs-sm); }
-.sum-share__url { font-weight: 600; word-break: break-all; }
+.sum-share__url { font-weight: 600; word-break: break-all; color: var(--accent); }
 
 /* สรุปยอด (component ใน ui.js): ชื่อ / หมายเหตุยาวต้องไม่ดันตัวเลขออกนอกจอ · จำนวนหลายหลักไม่ล้นคอลัมน์ */
 .tally__item { grid-template-columns: minmax(3.25rem, auto) minmax(0, 1fr) auto; }
@@ -805,3 +806,9 @@ textarea.field__input { min-height: 72px; resize: vertical; }
 .person__lines { overflow-wrap: anywhere; }
 .person__note svg { flex-shrink: 0; }
 .person__note span { min-width: 0; overflow-wrap: anywhere; }
+
+/* จอแคบ: ยอดเงินของเมนูลงไปอยู่ใต้ชื่อ ให้ชื่อเมนู (ที่ใช้อ่านให้ร้านฟัง) มีที่พอ */
+@media (max-width: 479px) {
+  .tally__item { grid-template-columns: minmax(3.25rem, auto) minmax(0, 1fr); row-gap: 0; }
+  .tally__amount { grid-column: 2; }
+}
