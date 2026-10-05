@@ -81,15 +81,16 @@ function ordersRouter({ repo, ordersRepo, now }) {
   });
 
   // F5 · ยกเลิก order ของชื่อนี้ → 204
-  // ลำดับ (D9): NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path, field "name") → ROUND_CLOSED (BE-24)
+  // ลำดับ (D9): NOT_FOUND (ไม่มีรอบ) → VALIDATION (ชื่อใน path, field "name") → ROUND_CLOSED
   //             → NOT_FOUND (ชื่อนี้ไม่มี order)
   router.delete(NAME_PATH, (req, res) => {
+    const current = now();
     const round = repo.findById(req.params.id);
     if (!round) throw roundNotFound();
     const raw = decodeName(req);
     if (raw === null) throw validation('name', 'ชื่อใน URL ไม่ถูกต้อง (ต้อง URL-encode)');
     const name = validatePersonName(raw);
-    // BE-24: ตรวจ ROUND_CLOSED ตรงนี้ (หลัง VALIDATION ก่อนหา order ตาม D9)
+    assertRoundOpen(round, current); // หลัง VALIDATION ก่อนหา order (D9) — ปิดแล้วตอบ 409 แม้ชื่อนี้ไม่มี order
     if (!ordersRepo.deleteByName(round.id, name)) throw notFound('ไม่พบ order ของชื่อนี้');
     res.status(204).end();
   });
