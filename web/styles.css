@@ -797,6 +797,25 @@ textarea.field__input { min-height: 72px; resize: vertical; }
 .menu-edit__add { margin-top: var(--s-3); }
 .cutoff-field__input { max-width: 13rem; font-size: var(--fs-xl); }
 
+/* F8: ช่องวัน/เวลาแบบ native มีจุด Tab ข้างใน (ชั่วโมง / นาที / AM-PM / ปุ่มนาฬิกา)
+   ตอน focus อยู่ที่ปุ่มนาฬิกา (อยู่ใน shadow DOM) input ไม่ match :focus / :focus-visible เหลือแค่ :focus-within
+   → ใช้ :focus-within ให้กรอบของหน้าขึ้นทุกจุด (ช่องกรอกได้ focus-visible ตอนแตะอยู่แล้ว จึงไม่ต่างจากช่องอื่น)
+   + กรอบแยกที่ตัวปุ่มนาฬิกาเอง เพื่อให้รู้ว่าอยู่จุดไหนในช่อง */
+.field__input:is([type="time"], [type="date"], [type="datetime-local"], [type="month"], [type="week"]):focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+  border-color: var(--ink);
+  border-radius: var(--r-field);
+}
+.field__input::-webkit-calendar-picker-indicator {
+  border-radius: 4px;
+  cursor: pointer;
+}
+.field__input::-webkit-calendar-picker-indicator:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* วันนี้มีรอบแล้ว */
 .existing {
   display: flex;
