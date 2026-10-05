@@ -7,6 +7,7 @@ const { apiNotFoundHandler, errorHandler, validation } = require('./errors');
 const { openDb } = require('./db');
 const { createRoundsRepo } = require('./rounds-repo');
 const { createOrdersRepo } = require('./orders-repo');
+const { createSummaryRepo } = require('./summary');
 const { roundsRouter } = require('./routes/rounds');
 
 /**
@@ -20,6 +21,7 @@ function createApp(opts = {}) {
   const db = openDb(opts.dbPath || ':memory:');
   const repo = createRoundsRepo(db);
   const ordersRepo = createOrdersRepo(db);
+  const summaryRepo = createSummaryRepo(db);
 
   const app = express();
   app.disable('x-powered-by');
@@ -47,7 +49,7 @@ function createApp(opts = {}) {
       return next();
     });
   });
-  api.use('/rounds', roundsRouter({ repo, ordersRepo, now }));
+  api.use('/rounds', roundsRouter({ repo, ordersRepo, summaryRepo, now }));
   api.use(apiNotFoundHandler);
   app.use('/api', api);
 
