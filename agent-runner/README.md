@@ -20,6 +20,12 @@ agent-runner โพสต์ "response" (หรือ "error") กลับเ�
 
 ## ตั้งค่าครั้งแรก (ประมาณ 30 นาที)
 
+> **ทุกคำสั่งในหน้านี้รันจากโฟลเดอร์ `agent-runner`** (ยกเว้น ngrok ในขั้นที่ 2 รันที่ไหนก็ได้):
+>
+> ```powershell
+> cd $HOME\Desktop\team-lunch\agent-runner
+> ```
+
 ### 1. ของที่ต้องมีบน Windows
 
 เปิด PowerShell แล้วเช็ก / ติดตั้ง:
@@ -67,6 +73,7 @@ notepad .env      # ใส่ PUBLIC_URL และ ID / secret ของ 3 app
 ### 5. เช็กเครื่อง แล้วเปิด daemon
 
 ```powershell
+cd $HOME\Desktop\team-lunch\agent-runner
 npm run doctor              # ✔ / ✘ ทีละข้อ พร้อมวิธีแก้
 .\daemon\install.ps1        # รัน ngrok + agent-runner เบื้องหลังเดี๋ยวนี้ และทุกครั้งที่ล็อกอิน Windows
 ```
